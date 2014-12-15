@@ -1,11 +1,8 @@
 #pragma once
-#include "aes.h"
-#include "sha1.h"
+
+#include "Loader/ELF64.h"
+#include "Loader/ELF32.h"
 #include "key_vault.h"
-#include "Loader/ELF.h"
-#include "Loader/SELF.h"
-#include <wx/mstream.h>
-#include <wx/zstream.h>
 
 struct AppInfo 
 {
@@ -15,22 +12,9 @@ struct AppInfo
   u64 version;
   u64 padding;
 
-  void Load(vfsStream& f)
-  {
-		authid		= Read64(f);
-		vendor_id	= Read32(f);
-		self_type	= Read32(f);
-		version		= Read64(f);
-		padding		= Read64(f);
-  }
+  void Load(vfsStream& f);
 
-  void Show()
-  {
-	  ConLog.Write("AuthID: 0x%llx",			authid);
-	  ConLog.Write("VendorID: 0x%08x",			vendor_id);
-	  ConLog.Write("SELF type: 0x%08x",			self_type);
-	  ConLog.Write("Version: 0x%llx",		    version);
-  }
+  void Show();
 };
 
 struct SectionInfo
@@ -42,25 +26,9 @@ struct SectionInfo
   u32 unknown2;
   u32 encrypted;
 
-  void Load(vfsStream& f)
-  {
-		offset			= Read64(f);
-		size			= Read64(f);
-		compressed		= Read32(f);
-		unknown1		= Read32(f);
-		unknown2		= Read32(f);
-		encrypted		= Read32(f);
-  }
+  void Load(vfsStream& f);
 
-  void Show()
-  {
-	  ConLog.Write("Offset: 0x%llx",			offset);
-	  ConLog.Write("Size: 0x%llx",				size);
-	  ConLog.Write("Compressed: 0x%08x",		compressed);
-	  ConLog.Write("Unknown1: 0x%08x",			unknown1);
-	  ConLog.Write("Unknown2: 0x%08x",			unknown2);
-	  ConLog.Write("Encrypted: 0x%08x",			encrypted);
-  }
+  void Show();
 };
 
 struct SCEVersionInfo
@@ -70,21 +38,9 @@ struct SCEVersionInfo
   u32 size;
   u32 unknown;
 
-  void Load(vfsStream& f)
-  {
-	  subheader_type	= Read32(f);
-	  present			= Read32(f);
-	  size				= Read32(f);
-	  unknown			= Read32(f);
-  }
+  void Load(vfsStream& f);
 
-  void Show()
-  {
-	  ConLog.Write("Sub-header type: 0x%08x",			subheader_type);
-	  ConLog.Write("Present: 0x%08x",					present);
-	  ConLog.Write("Size: 0x%08x",						size);
-	  ConLog.Write("Unknown: 0x%08x",					unknown);
-  }
+  void Show();
 };
 
 struct ControlInfo
@@ -134,122 +90,9 @@ struct ControlInfo
     } npdrm;
   };
 
-  void Load(vfsStream& f)
-  {
-	  type							= Read32(f);
-	  size							= Read32(f);
-	  next							= Read64(f);
+  void Load(vfsStream& f);
 
-	  if (type == 1)
-	  {
-		  control_flags.ctrl_flag1		= Read32(f);
-		  control_flags.unknown1		= Read32(f);
-		  control_flags.unknown2		= Read32(f);
-		  control_flags.unknown3		= Read32(f);
-		  control_flags.unknown4		= Read32(f);
-		  control_flags.unknown5		= Read32(f);
-		  control_flags.unknown6		= Read32(f);
-		  control_flags.unknown7		= Read32(f);
-	  }
-	  else if (type == 2)
-	  {
-		  if (size == 0x30)
-		  {
-			  f.Read(file_digest_30.digest, 20);
-			  file_digest_30.unknown        = Read64(f);
-		  }
-		  else if (size == 0x40)
-		  {
-			  f.Read(file_digest_40.digest1, 20);
-			  f.Read(file_digest_40.digest2, 20);
-			  file_digest_40.unknown        = Read64(f);
-		  }
-	  }
-	  else if (type == 3)
-	  {
-		  npdrm.magic                   = Read32(f);
-		  npdrm.unknown1                = Read32(f);
-		  npdrm.license					= Read32(f);
-		  npdrm.type					= Read32(f);
-		  f.Read(npdrm.content_id, 48);
-		  f.Read(npdrm.digest, 16);
-		  f.Read(npdrm.invdigest, 16);
-		  f.Read(npdrm.xordigest, 16);
-		  npdrm.unknown2                = Read64(f);
-		  npdrm.unknown3                = Read64(f);
-	  }
-  }
-
-  void Show()
-  {
-	  ConLog.Write("Type: 0x%08x",			type);
-	  ConLog.Write("Size: 0x%08x",			size);
-	  ConLog.Write("Next: 0x%llx",			next);
-
-	  if (type == 1)
-	  {
-		  ConLog.Write("Control flag 1: 0x%08x",			control_flags.ctrl_flag1);
-		  ConLog.Write("Unknown1: 0x%08x",					control_flags.unknown1);
-		  ConLog.Write("Unknown2: 0x%08x",					control_flags.unknown2);
-		  ConLog.Write("Unknown3: 0x%08x",					control_flags.unknown3);
-		  ConLog.Write("Unknown4: 0x%08x",					control_flags.unknown4);
-		  ConLog.Write("Unknown5: 0x%08x",					control_flags.unknown5);
-		  ConLog.Write("Unknown6: 0x%08x",					control_flags.unknown6);
-		  ConLog.Write("Unknown7: 0x%08x",					control_flags.unknown7);
-	  }
-	  else if (type == 2)
-	  {
-		  if (size == 0x30)
-		  {
-			  wxString digest_str;
-			  for (int i = 0; i < 20; i++)
-				  digest_str += wxString::Format("%02x", file_digest_30.digest[i]);
-
-			  ConLog.Write("Digest: %s",						digest_str.wc_str());
-			  ConLog.Write("Unknown: 0x%llx",					file_digest_30.unknown);
-		  }
-		  else if (size == 0x40)
-		  {
-			  wxString digest_str1;
-			  wxString digest_str2;
-			  for (int i = 0; i < 20; i++)
-			  {
-				  digest_str1 += wxString::Format("%02x", file_digest_40.digest1[i]);
-				  digest_str2 += wxString::Format("%02x", file_digest_40.digest2[i]);
-			  }
-			  
-			  ConLog.Write("Digest1: %s",						digest_str1.wc_str());
-			  ConLog.Write("Digest2: %s",						digest_str2.wc_str());
-			  ConLog.Write("Unknown: 0x%llx",					file_digest_40.unknown);
-		  }
-	  }
-	  else if (type == 3)
-	  {
-		  wxString contentid_str;
-		  wxString digest_str;
-		  wxString invdigest_str;
-		  wxString xordigest_str;
-		  for (int i = 0; i < 48; i++)
-			  contentid_str += wxString::Format("%02x", npdrm.content_id[i]);
-		  for (int i = 0; i < 16; i++)
-		  {
-			  digest_str += wxString::Format("%02x", npdrm.digest[i]);
-			  invdigest_str += wxString::Format("%02x", npdrm.invdigest[i]);
-			  xordigest_str += wxString::Format("%02x", npdrm.xordigest[i]);
-		  }
-
-		  ConLog.Write("Magic: 0x%08x",							npdrm.magic);
-		  ConLog.Write("Unknown1: 0x%08x",						npdrm.unknown1);
-		  ConLog.Write("License: 0x%08x",						npdrm.license);
-		  ConLog.Write("Type: 0x%08x",							npdrm.type);
-		  ConLog.Write("ContentID: %s",							contentid_str.wc_str());
-		  ConLog.Write("Digest: %s",							digest_str.wc_str());
-		  ConLog.Write("Inverse digest: %s",					invdigest_str.wc_str());
-		  ConLog.Write("XOR digest: %s",						xordigest_str.wc_str());
-		  ConLog.Write("Unknown2: 0x%llx",						npdrm.unknown2);
-		  ConLog.Write("Unknown3: 0x%llx",						npdrm.unknown3);
-	  }
-  }
+  void Show();
 };
 
 
@@ -260,33 +103,9 @@ struct MetadataInfo
   u8 iv[0x10];
   u8 iv_pad[0x10];
 
-  void Load(u8* in)
-  {
-	  memcpy(key, in, 0x10);
-	  memcpy(key_pad, in + 0x10, 0x10);
-	  memcpy(iv, in + 0x20, 0x10);
-	  memcpy(iv_pad, in + 0x30, 0x10);
-  }
+  void Load(u8* in);
 
-  void Show()
-  {
-	  wxString key_str;
-	  wxString key_pad_str;
-	  wxString iv_str;
-	  wxString iv_pad_str;
-	  for (int i = 0; i < 0x10; i++)
-	  {
-		  key_str += wxString::Format("%02x", key[i]);
-		  key_pad_str += wxString::Format("%02x", key_pad[i]);
-		  iv_str += wxString::Format("%02x", iv[i]);
-		  iv_pad_str += wxString::Format("%02x", iv_pad[i]);
-	  }
-	  
-	  ConLog.Write("Key: %s", key_str.wc_str());
-	  ConLog.Write("Key pad: %s", key_pad_str.wc_str());
-	  ConLog.Write("IV: %s", iv_str.wc_str());
-	  ConLog.Write("IV pad: %s", iv_pad_str.wc_str());
-  }
+  void Show();
 };
 
 struct MetadataHeader
@@ -299,36 +118,9 @@ struct MetadataHeader
   u32 unknown2;
   u32 unknown3;
 
-  void Load(u8* in)
-  {
-	  memcpy(&signature_input_length, in, 8);
-	  memcpy(&unknown1, in + 8, 4);
-	  memcpy(&section_count, in + 12, 4);
-	  memcpy(&key_count, in + 16, 4);
-	  memcpy(&opt_header_size, in + 20, 4);
-	  memcpy(&unknown2, in + 24, 4);
-	  memcpy(&unknown3, in + 28, 4);
+  void Load(u8* in);
 
-	  // Endian swap.
-	  signature_input_length = swap64(signature_input_length);
-	  unknown1 = swap32(unknown1);
-	  section_count = swap32(section_count);
-	  key_count = swap32(key_count);
-	  opt_header_size = swap32(opt_header_size);
-	  unknown2 = swap32(unknown2);
-	  unknown3 = swap32(unknown3);
-  }
-
-  void Show()
-  {
-	  ConLog.Write("Signature input length: 0x%llx",			signature_input_length);
-	  ConLog.Write("Unknown1: 0x%08x",							unknown1);
-	  ConLog.Write("Section count: 0x%08x",						section_count);
-	  ConLog.Write("Key count: 0x%08x",							key_count);
-	  ConLog.Write("Optional header size: 0x%08x",				opt_header_size);
-	  ConLog.Write("Unknown2: 0x%08x",							unknown2);
-	  ConLog.Write("Unknown3: 0x%08x",							unknown3);
-  }
+  void Show();
 };
 
 struct MetadataSectionHeader
@@ -344,58 +136,18 @@ struct MetadataSectionHeader
   u32 iv_idx;
   u32 compressed;
 
-  void Load(u8* in)
-  {
-	  memcpy(&data_offset, in, 8);
-	  memcpy(&data_size, in + 8, 8);
-	  memcpy(&type, in + 16, 4);
-	  memcpy(&program_idx, in + 20, 4);
-	  memcpy(&hashed, in + 24, 4);
-	  memcpy(&sha1_idx, in + 28, 4);
-	  memcpy(&encrypted, in + 32, 4);
-	  memcpy(&key_idx, in + 36, 4);
-	  memcpy(&iv_idx, in + 40, 4);
-	  memcpy(&compressed, in + 44, 4);
+  void Load(u8* in);
 
-	  // Endian swap.
-	  data_offset = swap64(data_offset);
-	  data_size = swap64(data_size);
-	  type = swap32(type);
-	  program_idx = swap32(program_idx);
-	  hashed = swap32(hashed);
-	  sha1_idx = swap32(sha1_idx);
-	  encrypted = swap32(encrypted);
-	  key_idx = swap32(key_idx);
-	  iv_idx = swap32(iv_idx);
-	  compressed = swap32(compressed);
-  }
-
-  void Show()
-  {
-	  ConLog.Write("Data offset: 0x%llx",						data_offset);
-	  ConLog.Write("Data size: 0x%llx",							data_size);
-	  ConLog.Write("Type: 0x%08x",								type);
-	  ConLog.Write("Program index: 0x%08x",						program_idx);
-	  ConLog.Write("Hashed: 0x%08x",							hashed);
-	  ConLog.Write("SHA1 index: 0x%08x",						sha1_idx);
-	  ConLog.Write("Encrypted: 0x%08x",							encrypted);
-	  ConLog.Write("Key index: 0x%08x",							key_idx);
-	  ConLog.Write("IV index: 0x%08x",							iv_idx);
-	  ConLog.Write("Compressed: 0x%08x",						compressed);
-  }
+  void Show();
 };
 
-struct SectionHash {
+struct SectionHash
+{
   u8 sha1[20];
   u8 padding[12];
   u8 hmac_key[64];
 
-  void Load(vfsStream& f)
-  {
-	  f.Read(sha1, 20);
-	  f.Read(padding, 12);
-	  f.Read(hmac_key, 64);
-  }
+  void Load(vfsStream& f);
 };
 
 struct CapabilitiesInfo
@@ -410,18 +162,7 @@ struct CapabilitiesInfo
   u32 unknown4;
   u32 unknown5;
 
-  void Load(vfsStream& f)
-  {
-	  type					= Read32(f);
-	  capabilities_size		= Read32(f);
-	  next					= Read32(f);
-	  unknown1				= Read32(f);
-	  unknown2				= Read64(f);
-	  unknown3				= Read64(f);
-	  flags					= Read64(f);
-	  unknown4				= Read32(f);
-	  unknown5				= Read32(f);
-  }
+  void Load(vfsStream& f);
 };
 
 struct Signature
@@ -430,12 +171,7 @@ struct Signature
   u8 s[21];
   u8 padding[6];
 
-  void Load(vfsStream& f)
-  {
-	  f.Read(r, 21);
-	  f.Read(s, 21);
-	  f.Read(padding, 6);
-  }
+  void Load(vfsStream& f);
 };
 
 struct SelfSection
@@ -444,13 +180,293 @@ struct SelfSection
   u64 size;
   u64 offset;
 
-  void Load(vfsStream& f)
-  {
-	  *data				= Read32(f);
-	  size				= Read64(f);
-	  offset			= Read64(f);
-  }
+  void Load(vfsStream& f);
 };
+
+struct Elf32_Ehdr
+{
+	u32 e_magic;
+	u8 e_class;
+	u8 e_data;
+	u8 e_curver;
+	u8 e_os_abi;
+	u64 e_abi_ver;
+	u16 e_type;
+	u16 e_machine;
+	u32 e_version;
+	u32 e_entry;
+	u32 e_phoff;
+	u32 e_shoff;
+	u32 e_flags;
+	u16 e_ehsize;
+	u16 e_phentsize;
+	u16 e_phnum;
+	u16 e_shentsize;
+	u16 e_shnum;
+	u16 e_shstrndx;
+	void Show() {}
+	bool IsLittleEndian() const
+	{
+		return e_data == 1;
+	}
+
+	void Load(vfsStream& f)
+	{
+		e_magic = Read32(f);
+		e_class = Read8(f);
+		e_data = Read8(f);
+		e_curver = Read8(f);
+		e_os_abi = Read8(f);
+
+		if (IsLittleEndian())
+		{
+			e_abi_ver = Read64LE(f);
+			e_type = Read16LE(f);
+			e_machine = Read16LE(f);
+			e_version = Read32LE(f);
+			e_entry = Read32LE(f);
+			e_phoff = Read32LE(f);
+			e_shoff = Read32LE(f);
+			e_flags = Read32LE(f);
+			e_ehsize = Read16LE(f);
+			e_phentsize = Read16LE(f);
+			e_phnum = Read16LE(f);
+			e_shentsize = Read16LE(f);
+			e_shnum = Read16LE(f);
+			e_shstrndx = Read16LE(f);
+		}
+		else
+		{
+			e_abi_ver = Read64(f);
+			e_type = Read16(f);
+			e_machine = Read16(f);
+			e_version = Read32(f);
+			e_entry = Read32(f);
+			e_phoff = Read32(f);
+			e_shoff = Read32(f);
+			e_flags = Read32(f);
+			e_ehsize = Read16(f);
+			e_phentsize = Read16(f);
+			e_phnum = Read16(f);
+			e_shentsize = Read16(f);
+			e_shnum = Read16(f);
+			e_shstrndx = Read16(f);
+		}
+	}
+	bool CheckMagic() const { return e_magic == 0x7F454C46; }
+	u32 GetEntry() const { return e_entry; }
+};
+
+struct Elf32_Shdr
+{
+	u32 sh_name;
+	u32 sh_type;
+	u32 sh_flags;
+	u32 sh_addr;
+	u32 sh_offset;
+	u32 sh_size;
+	u32 sh_link;
+	u32 sh_info;
+	u32 sh_addralign;
+	u32 sh_entsize;
+	void Load(vfsStream& f)
+	{
+		sh_name = Read32(f);
+		sh_type = Read32(f);
+		sh_flags = Read32(f);
+		sh_addr = Read32(f);
+		sh_offset = Read32(f);
+		sh_size = Read32(f);
+		sh_link = Read32(f);
+		sh_info = Read32(f);
+		sh_addralign = Read32(f);
+		sh_entsize = Read32(f);
+	}
+	void LoadLE(vfsStream& f)
+	{
+		f.Read(this, sizeof(*this));
+	}
+	void Show() {}
+};
+struct Elf32_Phdr
+{
+	u32 p_type;
+	u32 p_offset;
+	u32 p_vaddr;
+	u32 p_paddr;
+	u32 p_filesz;
+	u32 p_memsz;
+	u32 p_flags;
+	u32 p_align;
+	void Load(vfsStream& f)
+	{
+		p_type = Read32(f);
+		p_offset = Read32(f);
+		p_vaddr = Read32(f);
+		p_paddr = Read32(f);
+		p_filesz = Read32(f);
+		p_memsz = Read32(f);
+		p_flags = Read32(f);
+		p_align = Read32(f);
+	}
+	void LoadLE(vfsStream& f)
+	{
+		f.Read(this, sizeof(*this));
+	}
+	void Show() {}
+};
+
+struct Elf64_Ehdr
+{
+	u32 e_magic;
+	u8 e_class;
+	u8 e_data;
+	u8 e_curver;
+	u8 e_os_abi;
+	u64 e_abi_ver;
+	u16 e_type;
+	u16 e_machine;
+	u32 e_version;
+	u64 e_entry;
+	u64 e_phoff;
+	u64 e_shoff;
+	u32 e_flags;
+	u16 e_ehsize;
+	u16 e_phentsize;
+	u16 e_phnum;
+	u16 e_shentsize;
+	u16 e_shnum;
+	u16 e_shstrndx;
+	void Load(vfsStream& f)
+	{
+		e_magic = Read32(f);
+		e_class = Read8(f);
+		e_data = Read8(f);
+		e_curver = Read8(f);
+		e_os_abi = Read8(f);
+		e_abi_ver = Read64(f);
+		e_type = Read16(f);
+		e_machine = Read16(f);
+		e_version = Read32(f);
+		e_entry = Read64(f);
+		e_phoff = Read64(f);
+		e_shoff = Read64(f);
+		e_flags = Read32(f);
+		e_ehsize = Read16(f);
+		e_phentsize = Read16(f);
+		e_phnum = Read16(f);
+		e_shentsize = Read16(f);
+		e_shnum = Read16(f);
+		e_shstrndx = Read16(f);
+	}
+	void Show() {}
+	bool CheckMagic() const { return e_magic == 0x7F454C46; }
+	u64 GetEntry() const { return e_entry; }
+};
+
+struct Elf64_Shdr
+{
+	u32 sh_name;
+	u32 sh_type;
+	u64 sh_flags;
+	u64 sh_addr;
+	u64 sh_offset;
+	u64 sh_size;
+	u32 sh_link;
+	u32 sh_info;
+	u64 sh_addralign;
+	u64 sh_entsize;
+	void Load(vfsStream& f)
+	{
+		sh_name = Read32(f);
+		sh_type = Read32(f);
+		sh_flags = Read64(f);
+		sh_addr = Read64(f);
+		sh_offset = Read64(f);
+		sh_size = Read64(f);
+		sh_link = Read32(f);
+		sh_info = Read32(f);
+		sh_addralign = Read64(f);
+		sh_entsize = Read64(f);
+	}
+	void Show(){}
+};
+
+struct Elf64_Phdr
+{
+	u32 p_type;
+	u32 p_flags;
+	u64 p_offset;
+	u64 p_vaddr;
+	u64 p_paddr;
+	u64 p_filesz;
+	u64 p_memsz;
+	u64 p_align;
+	void Load(vfsStream& f)
+	{
+		p_type = Read32(f);
+		p_flags = Read32(f);
+		p_offset = Read64(f);
+		p_vaddr = Read64(f);
+		p_paddr = Read64(f);
+		p_filesz = Read64(f);
+		p_memsz = Read64(f);
+		p_align = Read64(f);
+	}
+	void Show(){}
+};
+
+struct SceHeader
+{
+	u32 se_magic;
+	u32 se_hver;
+	u16 se_flags;
+	u16 se_type;
+	u32 se_meta;
+	u64 se_hsize;
+	u64 se_esize;
+	void Load(vfsStream& f)
+	{
+		se_magic = Read32(f);
+		se_hver = Read32(f);
+		se_flags = Read16(f);
+		se_type = Read16(f);
+		se_meta = Read32(f);
+		se_hsize = Read64(f);
+		se_esize = Read64(f);
+	}
+	void Show(){}
+	bool CheckMagic() const { return se_magic == 0x53434500; }
+};
+
+struct SelfHeader
+{
+	u64 se_htype;
+	u64 se_appinfooff;
+	u64 se_elfoff;
+	u64 se_phdroff;
+	u64 se_shdroff;
+	u64 se_secinfoff;
+	u64 se_sceveroff;
+	u64 se_controloff;
+	u64 se_controlsize;
+	u64 pad;
+	void Load(vfsStream& f)
+	{
+		se_htype = Read64(f);
+		se_appinfooff = Read64(f);
+		se_elfoff = Read64(f);
+		se_phdroff = Read64(f);
+		se_shdroff = Read64(f);
+		se_secinfoff = Read64(f);
+		se_sceveroff = Read64(f);
+		se_controloff = Read64(f);
+		se_controlsize = Read64(f);
+		pad = Read64(f);
+	}
+	void Show(){}
+};
+
 
 class SELFDecrypter
 {
@@ -464,23 +480,23 @@ class SELFDecrypter
 	
 	// ELF64 header and program header/section header arrays.
 	Elf64_Ehdr elf64_hdr;
-	Array<Elf64_Shdr> shdr64_arr;
-	Array<Elf64_Phdr> phdr64_arr;
+	std::vector<Elf64_Shdr> shdr64_arr;
+	std::vector<Elf64_Phdr> phdr64_arr;
 
 	// ELF32 header and program header/section header arrays.
 	Elf32_Ehdr elf32_hdr;
-	Array<Elf32_Shdr> shdr32_arr;
-	Array<Elf32_Phdr> phdr32_arr;
+	std::vector<Elf32_Shdr> shdr32_arr;
+	std::vector<Elf32_Phdr> phdr32_arr;
 
 	// Decryption info structs.
-	Array<SectionInfo> secinfo_arr;
+	std::vector<SectionInfo> secinfo_arr;
 	SCEVersionInfo scev_info;
-	Array<ControlInfo> ctrlinfo_arr;
+	std::vector<ControlInfo> ctrlinfo_arr;
 
 	// Metadata structs.
 	MetadataInfo meta_info;
 	MetadataHeader meta_hdr;
-	Array<MetadataSectionHeader> meta_shdr;
+	std::vector<MetadataSectionHeader> meta_shdr;
 
 	// Internal data buffers.
 	u8 *data_keys;

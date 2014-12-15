@@ -1,7 +1,9 @@
-#include "stdafx.h"
-#include "CompilerELF.h"
+#include "stdafx_gui.h"
+#include "Utilities/rMsgBox.h"
+
 #include "Emu/Cell/PPUProgramCompiler.h"
 using namespace PPU_opcodes;
+#include "CompilerELF.h"
 
 enum CompilerIDs
 {
@@ -16,31 +18,25 @@ wxFont GetFont(int size)
 }
 
 CompilerELF::CompilerELF(wxWindow* parent)
-	: FrameBase(parent, wxID_ANY, "CompilerELF", wxEmptyString, wxSize(640, 680))
+	: FrameBase(parent, wxID_ANY, "CompilerELF", "", wxSize(640, 680))
 	, m_status_bar(*CreateStatusBar())
 {
 	m_disable_scroll = false;
 
 	m_aui_mgr.SetManagedWindow(this);
 
-	wxMenuBar& menubar(*new wxMenuBar());
-	wxMenu& menu_code(*new wxMenu());
-	menubar.Append(&menu_code, "Code");
+	wxMenuBar* menubar = new wxMenuBar();
+	wxMenu* menu_code = new wxMenu();
+	menubar->Append(menu_code, "Code");
 
 	//menu_code.Append(id_analyze_code, "Analyze");
-	menu_code.Append(id_compile_code, "Compile");
-	menu_code.Append(id_load_elf, "Load ELF");
+	menu_code->Append(id_compile_code, "Compile");
+	menu_code->Append(id_load_elf, "Load ELF");
 
-	SetMenuBar(&menubar);
-
-	asm_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(400, -1),
-		wxTE_MULTILINE | wxTE_DONTWRAP | wxTE_RICH2);
-
-	hex_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(155, -1),
-		wxTE_MULTILINE | wxTE_DONTWRAP | wxTE_READONLY | wxTE_RICH2);
-
-	err_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(140, 200),
-		wxTE_MULTILINE | wxTE_READONLY);
+	SetMenuBar(menubar);
+	asm_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(400, -1),  wxTE_MULTILINE | wxTE_DONTWRAP | wxTE_RICH2);
+	hex_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(155, -1),  wxTE_MULTILINE | wxTE_DONTWRAP | wxTE_READONLY | wxTE_RICH2);
+	err_list = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(140, 200), wxTE_MULTILINE | wxTE_READONLY);
 
 	const wxSize& client_size = GetClientSize();
 
@@ -54,26 +50,27 @@ CompilerELF::CompilerELF(wxWindow* parent)
 
 	FrameBase::LoadInfo();
 
-	Connect(asm_list->GetId(), wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler(CompilerELF::OnUpdate));
-	Connect(id_analyze_code, wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(CompilerELF::AnalyzeCode));
-	Connect(id_compile_code, wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(CompilerELF::CompileCode));
-	Connect(id_load_elf,	 wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(CompilerELF::LoadElf));
+	Bind(wxEVT_MENU, &CompilerELF::AnalyzeCode, this, id_analyze_code);
+	Bind(wxEVT_MENU, &CompilerELF::CompileCode, this, id_compile_code);
+	Bind(wxEVT_MENU, (void (CompilerELF::*)(wxCommandEvent&)) &CompilerELF::LoadElf, this, id_load_elf);
 
 	asm_list->SetFont(wxFont(-1, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	hex_list->SetFont(wxFont(-1, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 
-	m_app_connector.Connect(wxEVT_SCROLLWIN_TOP,			wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
-	m_app_connector.Connect(wxEVT_SCROLLWIN_BOTTOM,		wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
-	m_app_connector.Connect(wxEVT_SCROLLWIN_LINEUP,		wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
-	m_app_connector.Connect(wxEVT_SCROLLWIN_LINEDOWN,	wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
-	m_app_connector.Connect(wxEVT_SCROLLWIN_THUMBTRACK,	wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
-	m_app_connector.Connect(wxEVT_SCROLLWIN_THUMBRELEASE,wxScrollWinEventHandler(CompilerELF::OnScroll), (wxObject*)0, this);
+	asm_list->Bind(wxEVT_TEXT, &CompilerELF::OnUpdate, this);
 
-	m_app_connector.Connect(asm_list->GetId(), wxEVT_MOUSEWHEEL, wxMouseEventHandler(CompilerELF::MouseWheel), (wxObject*)0, this);
-	m_app_connector.Connect(hex_list->GetId(), wxEVT_MOUSEWHEEL, wxMouseEventHandler(CompilerELF::MouseWheel), (wxObject*)0, this);
+	Bind(wxEVT_SCROLLWIN_TOP,          &CompilerELF::OnScroll, this);
+	Bind(wxEVT_SCROLLWIN_BOTTOM,       &CompilerELF::OnScroll, this);
+	Bind(wxEVT_SCROLLWIN_LINEUP,       &CompilerELF::OnScroll, this);
+	Bind(wxEVT_SCROLLWIN_LINEDOWN,     &CompilerELF::OnScroll, this);
+	Bind(wxEVT_SCROLLWIN_THUMBTRACK,   &CompilerELF::OnScroll, this);
+	Bind(wxEVT_SCROLLWIN_THUMBRELEASE, &CompilerELF::OnScroll, this);
 
-	m_app_connector.Connect(asm_list->GetId(), wxEVT_KEY_DOWN, wxKeyEventHandler(CompilerELF::OnKeyDown), (wxObject*)0, this);
-	m_app_connector.Connect(hex_list->GetId(), wxEVT_KEY_DOWN, wxKeyEventHandler(CompilerELF::OnKeyDown), (wxObject*)0, this);
+	asm_list->Bind(wxEVT_MOUSEWHEEL, &CompilerELF::MouseWheel, this);
+	hex_list->Bind(wxEVT_MOUSEWHEEL, &CompilerELF::MouseWheel, this);
+
+	asm_list->Bind(wxEVT_KEY_DOWN, &CompilerELF::OnKeyDown, this);
+	hex_list->Bind(wxEVT_KEY_DOWN, &CompilerELF::OnKeyDown, this);
 
 	asm_list->WriteText(
 		".int [sys_tty_write, 0x193]\n"
@@ -180,12 +177,12 @@ void CompilerELF::OnKeyDown(wxKeyEvent& event)
 
 	switch(event.GetKeyCode())
 	{
-	case WXK_RETURN:	UpdateStatus( 1); break;
-	case WXK_UP:		UpdateStatus(-1); break;
-	case WXK_DOWN:		UpdateStatus( 1); break;
+	case WXK_RETURN: UpdateStatus( 1); break;
+	case WXK_UP:     UpdateStatus(-1); break;
+	case WXK_DOWN:   UpdateStatus( 1); break;
 
 	case WXK_LEFT:
-	case WXK_RIGHT:		UpdateStatus(); break;
+	case WXK_RIGHT:  UpdateStatus(); break;
 
 	case WXK_PAGEUP:
 		scrool_event.SetEventType(wxEVT_SCROLLWIN_PAGEUP);
@@ -306,8 +303,8 @@ void CompilerELF::OnScroll(wxScrollWinEvent& event)
 
 	const int id = event.GetEventObject() ? ((wxScrollBar*)event.GetEventObject())->GetId() : -1;
 
-	wxTextCtrl* src = NULL;
-	wxTextCtrl* dst = NULL;
+	wxTextCtrl* src = nullptr;
+	wxTextCtrl* dst = nullptr;
 
 	if(id == hex_list->GetId())
 	{
@@ -391,27 +388,27 @@ void CompilerELF::LoadElf(wxCommandEvent& event)
 		"All Files (*.*)|*.*",
 		wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 
-	if(ctrl.ShowModal() == wxID_CANCEL) return;
-	LoadElf(ctrl.GetPath());
+	if(ctrl.ShowModal() == rID_CANCEL) return;
+	LoadElf(fmt::ToUTF8(ctrl.GetPath()));
 }
 
 #include "Emu/Cell/PPUDisAsm.h"
 #include "Emu/Cell/PPUDecoder.h"
 
-void CompilerELF::LoadElf(const wxString& path)
+void CompilerELF::LoadElf(const std::string& path)
 {
 }
 
-void CompilerELF::SetTextStyle(const wxString& text, const wxColour& color, bool bold)
+void CompilerELF::SetTextStyle(const std::string& text, const wxColour& color, bool bold)
 {
-	for(int p=0; (p = asm_list->GetValue().find(text, p)) >= 0; p += text.Len())
+	for(int p=0; (p = fmt::ToUTF8(asm_list->GetValue()).find(text, p)) !=std::string::npos; p += text.length())
 	{
-		asm_list->SetStyle(p, p + text.Len(), wxTextAttr(color, wxNullColour, 
+		asm_list->SetStyle(p, p + text.length(), wxTextAttr(color, wxNullColour, 
 			wxFont(-1, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, bold ? wxFONTWEIGHT_BOLD : wxFONTWEIGHT_NORMAL)));
 	}
 }
 
-void CompilerELF::SetOpStyle(const wxString& text, const wxColour& color, bool bold)
+void CompilerELF::SetOpStyle(const std::string& text, const wxColour& color, bool bold)
 {
 	/*
 	for(int p=0; (p = FindOp(asm_list->GetValue(), text, p)) >= 0; p += text.Len())
@@ -424,5 +421,5 @@ void CompilerELF::SetOpStyle(const wxString& text, const wxColour& color, bool b
 
 void CompilerELF::DoAnalyzeCode(bool compile)
 {
-	CompilePPUProgram(asm_list->GetValue(), "compiled.elf", asm_list, hex_list, err_list, !compile).Compile();
+//	CompilePPUProgram(fmt::ToUTF8(asm_list->GetValue()), "compiled.elf", asm_list, hex_list, err_list, !compile).Compile();
 }

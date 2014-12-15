@@ -1,11 +1,10 @@
 #pragma once
-
 #include "KeyboardHandler.h"
 
-class KeyboardManager //: public wxWindow
+class KeyboardManager
 {
 	bool m_inited;
-	KeyboardHandlerBase* m_keyboard_handler;
+	std::unique_ptr<KeyboardHandlerBase> m_keyboard_handler;
 
 public:
 	KeyboardManager();
@@ -14,14 +13,17 @@ public:
 	void Init(const u32 max_connect);
 	void Close();
 
-	Array<Keyboard>& GetKeyboards() { return m_keyboard_handler->GetKeyboards(); }
+	std::vector<Keyboard>& GetKeyboards() { return m_keyboard_handler->GetKeyboards(); }
 	KbInfo& GetInfo() { return m_keyboard_handler->GetInfo(); }
-	Array<KbButton>& GetButtons(const u32 keyboard) { return m_keyboard_handler->GetButtons(keyboard); }
-	CellKbData& GetData(const u32 keyboard) { return m_keyboard_handler->GetData(keyboard); }
-	CellKbConfig& GetConfig(const u32 keyboard) { return m_keyboard_handler->GetConfig(keyboard); }
+	std::vector<KbButton>& GetButtons(const u32 keyboard) { return m_keyboard_handler->GetButtons(keyboard); }
+	KbData& GetData(const u32 keyboard) { return m_keyboard_handler->GetData(keyboard); }
+	KbConfig& GetConfig(const u32 keyboard) { return m_keyboard_handler->GetConfig(keyboard); }
 
-	bool IsInited() { return m_inited; }
-
-//private:
-	//DECLARE_EVENT_TABLE();
+	bool IsInited() const { return m_inited; }
 };
+
+typedef int(*GetKeyboardHandlerCountCb)();
+typedef KeyboardHandlerBase*(*GetKeyboardHandlerCb)(int i);
+
+void SetGetKeyboardHandlerCountCallback(GetKeyboardHandlerCountCb cb);
+void SetGetKeyboardHandlerCallback(GetKeyboardHandlerCb cb);

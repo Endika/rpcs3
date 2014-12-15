@@ -20,24 +20,24 @@ public:
 
 class VHDDExplorer : public wxDialog
 {
-	Array<vfsHDD_Entry> m_entries;
-	wxArrayString m_names;
+	std::vector<vfsHDD_Entry> m_entries;
+	std::vector<std::string> m_names;
 	wxListView* m_list;
 	vfsHDD* m_hdd;
 	VHDDListDropTarget* m_drop_target;
 
 public:
-	VHDDExplorer(wxWindow* parent, const wxString& hdd_path);
+	VHDDExplorer(wxWindow* parent, const std::string& hdd_path);
 
 	void UpdateList();
-	void Import(const wxString& path, const wxString& to);
-	void Export(const wxString& path, const wxString& to);
+	void Import(const std::string& path, const std::string& to);
+	void Export(const std::string& path, const std::string& to);
 
 	void OnListDrag(wxListEvent& event);
 	void OnDropFiles(wxDropFilesEvent& event);
 	void OpenDir(int sel);
 	void DClick(wxListEvent& event);
-	void OnContextMenu(wxCommandEvent& event);
+	void OnContextMenu(wxMouseEvent& event);
 	void OnOpen(wxCommandEvent& event);
 	void OnRename(wxCommandEvent& event);
 	void OnRemove(wxCommandEvent& event);
@@ -65,7 +65,7 @@ public:
 
 class VHDDManagerDialog : public wxDialog
 {
-	Array<wxString> m_pathes;
+	std::vector<std::string> m_paths;
 	wxListView* m_list;
 
 public:
@@ -76,12 +76,12 @@ public:
 	void Open(int sel);
 	void DClick(wxListEvent& event);
 	void AddHDD(wxCommandEvent& event);
-	void OnContextMenu(wxCommandEvent& event);
+	void OnContextMenu(wxMouseEvent& event);
 	void OnOpen(wxCommandEvent& event);
 	void OnRemove(wxCommandEvent& event);
 	void OnCreateHDD(wxCommandEvent& event);
 
-	void OnClose(wxCloseEvent& event);
-	void LoadPathes();
-	void SavePathes();
+	void OnOk(wxCommandEvent& event);
+	void LoadPaths();
+	void SavePaths();
 };

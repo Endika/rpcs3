@@ -7,20 +7,20 @@
 // Error Codes
 enum
 {
-	CELL_VDEC_ERROR_ARG		= 0x80610101,
-	CELL_VDEC_ERROR_SEQ		= 0x80610102,
-	CELL_VDEC_ERROR_BUSY	= 0x80610103,
-	CELL_VDEC_ERROR_EMPTY	= 0x80610104,
-	CELL_VDEC_ERROR_AU		= 0x80610105,
-	CELL_VDEC_ERROR_PIC		= 0x80610106,
-	CELL_VDEC_ERROR_FATAL	= 0x80610180,
+	CELL_VDEC_ERROR_ARG   = 0x80610101,
+	CELL_VDEC_ERROR_SEQ   = 0x80610102,
+	CELL_VDEC_ERROR_BUSY  = 0x80610103,
+	CELL_VDEC_ERROR_EMPTY = 0x80610104,
+	CELL_VDEC_ERROR_AU    = 0x80610105,
+	CELL_VDEC_ERROR_PIC   = 0x80610106,
+	CELL_VDEC_ERROR_FATAL = 0x80610180,
 };
 
 enum CellVdecCodecType
 {
-	CELL_VDEC_CODEC_TYPE_MPEG2	= 0x00000000,
-	CELL_VDEC_CODEC_TYPE_AVC	= 0x00000001,
-	CELL_VDEC_CODEC_TYPE_DIVX	= 0x00000005,
+	CELL_VDEC_CODEC_TYPE_MPEG2 = 0x00000000,
+	CELL_VDEC_CODEC_TYPE_AVC   = 0x00000001,
+	CELL_VDEC_CODEC_TYPE_DIVX  = 0x00000005,
 };
 
 // Callback Messages
@@ -65,14 +65,14 @@ enum CellVdecPicAttr
 // Universal Frame Rate Code
 enum CellVdecFrameRate : u8
 {
-	CELL_VDEC_FRC_24000DIV1001	= 0x80,
-	CELL_VDEC_FRC_24			= 0x81,
-	CELL_VDEC_FRC_25			= 0x82,
-	CELL_VDEC_FRC_30000DIV1001	= 0x83,
-	CELL_VDEC_FRC_30			= 0x84,
-	CELL_VDEC_FRC_50			= 0x85,
-	CELL_VDEC_FRC_60000DIV1001	= 0x86,
-	CELL_VDEC_FRC_60			= 0x87,
+	CELL_VDEC_FRC_24000DIV1001 = 0x80,
+	CELL_VDEC_FRC_24           = 0x81,
+	CELL_VDEC_FRC_25           = 0x82,
+	CELL_VDEC_FRC_30000DIV1001 = 0x83,
+	CELL_VDEC_FRC_30           = 0x84,
+	CELL_VDEC_FRC_50           = 0x85,
+	CELL_VDEC_FRC_60000DIV1001 = 0x86,
+	CELL_VDEC_FRC_60           = 0x87,
 };
 
 // Codec Type Information
@@ -167,12 +167,12 @@ struct CellVdecPicFormat
 	u8 alpha;
 };
 
-typedef mem_func_ptr_t<void (*)(u32 handle_addr, CellVdecMsgType msgType, int msgData, u32 cbArg_addr)> CellVdecCbMsg;
+typedef u32(*CellVdecCbMsg)(u32 handle, CellVdecMsgType msgType, s32 msgData, u32 cbArg);
 
 // Callback Function Information
 struct CellVdecCb
 {
-	be_t<u32> cbFunc;
+	vm::bptr<CellVdecCbMsg> cbFunc;
 	be_t<u32> cbArg;
 };
 
@@ -685,6 +685,7 @@ struct VdecFrame
 	u64 dts;
 	u64 pts;
 	u64 userdata;
+	u32 frc;
 };
 
 int vdecRead(void* opaque, u8* buf, int buf_size);
@@ -694,10 +695,13 @@ class VideoDecoder
 public:
 	SQueue<VdecTask> job;
 	u32 id;
-	volatile bool is_running;
+	volatile bool is_closed;
 	volatile bool is_finished;
 	bool just_started;
+	bool just_finished;
 
+	AVCodec* codec;
+	AVInputFormat* input_format;
 	AVCodecContext* ctx;
 	AVFormatContext* fmt;
 	u8* io_buf;
@@ -714,74 +718,18 @@ public:
 	const u32 profile;
 	const u32 memAddr;
 	const u32 memSize;
-	const u32 cbFunc;
+	const vm::ptr<CellVdecCbMsg> cbFunc;
 	const u32 cbArg;
 	u32 memBias;
 
 	VdecTask task; // current task variable
-	u64 last_pts, last_dts;
+	u64 last_pts, first_pts, first_dts;
+	u32 frc_set; // frame rate overwriting
+	AVRational rfr, afr;
 
-	CPUThread* vdecCb;
+	PPUThread* vdecCb;
 
-	VideoDecoder(CellVdecCodecType type, u32 profile, u32 addr, u32 size, u32 func, u32 arg)
-		: type(type)
-		, profile(profile)
-		, memAddr(addr)
-		, memSize(size)
-		, memBias(0)
-		, cbFunc(func)
-		, cbArg(arg)
-		, is_finished(false)
-		, is_running(false)
-		, just_started(false)
-		, ctx(nullptr)
-		, vdecCb(nullptr)
-	{
-		AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-		if (!codec)
-		{
-			ConLog.Error("VideoDecoder(): avcodec_find_decoder(H264) failed");
-			Emu.Pause();
-			return;
-		}
-		fmt = avformat_alloc_context();
-		if (!fmt)
-		{
-			ConLog.Error("VideoDecoder(): avformat_alloc_context failed");
-			Emu.Pause();
-			return;
-		}
-		io_buf = (u8*)av_malloc(4096);
-		fmt->pb = avio_alloc_context(io_buf, 4096, 0, this, vdecRead, NULL, NULL);
-		if (!fmt->pb)
-		{
-			ConLog.Error("VideoDecoder(): avio_alloc_context failed");
-			Emu.Pause();
-			return;
-		}
-	}
+	VideoDecoder(CellVdecCodecType type, u32 profile, u32 addr, u32 size, vm::ptr<CellVdecCbMsg> func, u32 arg);
 
-	~VideoDecoder()
-	{
-		if (ctx)
-		{
-			for (u32 i = frames.GetCount() - 1; ~i; i--)
-			{
-				VdecFrame& vf = frames.Peek(i);
-				av_frame_unref(vf.data);
-				av_frame_free(&vf.data);
-			}
-			avcodec_close(ctx);
-			avformat_close_input(&fmt);
-		}
-		if (fmt)
-		{
-			if (io_buf)
-			{
-				av_free(io_buf);
-			}
-			if (fmt->pb) av_free(fmt->pb);
-			avformat_free_context(fmt);
-		}
-	}
+	~VideoDecoder();
 };

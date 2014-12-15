@@ -1,191 +1,165 @@
 #pragma once
 #include "Loader.h"
+#include <unordered_map>
 
-struct Elf64_Ehdr
+struct vfsStream;
+class rFile;
+
+namespace loader
 {
-	u32 e_magic;
-	u8  e_class;
-	u8  e_data;
-	u8  e_curver;
-	u8  e_os_abi;
-	u64 e_abi_ver;
-	u16 e_type;
-	u16 e_machine;
-	u32 e_version;
-	u64 e_entry;
-	u64 e_phoff;
-	u64 e_shoff;
-	u32 e_flags;
-	u16 e_ehsize;
-	u16 e_phentsize;
-	u16 e_phnum;
-	u16 e_shentsize;
-	u16 e_shnum;
-	u16 e_shstrndx;
-
-	void Load(vfsStream& f)
+	namespace handlers
 	{
-		e_magic		= Read32(f);
-		e_class		= Read8(f);
-		e_data		= Read8(f);
-		e_curver	= Read8(f);
-		e_os_abi	= Read8(f);
-		e_abi_ver	= Read64(f);
-		e_type		= Read16(f);
-		e_machine	= Read16(f);
-		e_version	= Read32(f);
-		e_entry		= Read64(f);
-		e_phoff		= Read64(f);
-		e_shoff		= Read64(f);
-		e_flags		= Read32(f);
-		e_ehsize	= Read16(f);
-		e_phentsize = Read16(f);
-		e_phnum		= Read16(f);
-		e_shentsize = Read16(f);
-		e_shnum		= Read16(f);
-		e_shstrndx  = Read16(f);
+		class elf64 : public handler
+		{
+		public:
+			struct ehdr
+			{
+				be_t<u32> e_magic;
+				u8 e_class;
+				u8 e_data;
+				u8 e_curver;
+				u8 e_os_abi;
+				be_t<u64> e_abi_ver;
+				be_t<u16> e_type;
+				be_t<u16> e_machine;
+				be_t<u32> e_version;
+				be_t<u64> e_entry;
+				be_t<u64> e_phoff;
+				be_t<u64> e_shoff;
+				be_t<u32> e_flags;
+				be_t<u16> e_ehsize;
+				be_t<u16> e_phentsize;
+				be_t<u16> e_phnum;
+				be_t<u16> e_shentsize;
+				be_t<u16> e_shnum;
+				be_t<u16> e_shstrndx;
+
+				bool check() const { return e_magic.ToBE() == se32(0x7F454C46); }
+			} m_ehdr;
+
+			struct phdr
+			{
+				be_t<u32> p_type;
+				be_t<u32> p_flags;
+				be_t<u64> p_offset;
+				bptr<void, 1, u64> p_vaddr;
+				bptr<void, 1, u64> p_paddr;
+				be_t<u64> p_filesz;
+				be_t<u64> p_memsz;
+				be_t<u64> p_align;
+			};
+
+			struct shdr
+			{
+				be_t<u32> sh_name;
+				be_t<u32> sh_type;
+				be_t<u64> sh_flags;
+				bptr<void, 1, u64> sh_addr;
+				be_t<u64> sh_offset;
+				be_t<u64> sh_size;
+				be_t<u32> sh_link;
+				be_t<u32> sh_info;
+				be_t<u64> sh_addralign;
+				be_t<u64> sh_entsize;
+			};
+
+			struct sprx_module_info
+			{
+				be_t<u16> attr;
+				u8 version[2];
+				char name[28];
+				be_t<u32> toc_addr;
+				be_t<u32> export_start;
+				be_t<u32> export_end;
+				be_t<u32> import_start;
+				be_t<u32> import_end;
+			} m_sprx_module_info;
+
+			struct sprx_export_info
+			{
+				u8 size;
+				u8 padding;
+				be_t<u16> version;
+				be_t<u16> attr;
+				be_t<u16> func_count;
+				be_t<u16> vars_count;
+				be_t<u16> tls_vars_count;
+				be_t<u16> hash_info;
+				be_t<u16> tls_hash_info;
+				u8 reserved[2];
+				be_t<u32> lib_name_offset;
+				be_t<u32> nid_offset;
+				be_t<u32> stub_offset;
+			};
+
+			struct sprx_import_info
+			{
+				u8 size;
+				u8 unused;
+				be_t<u16> version;
+				be_t<u16> attr;
+				be_t<u16> func_count;
+				be_t<u16> vars_count;
+				be_t<u16> tls_vars_count;
+				u8 reserved[4];
+				be_t<u32> lib_name_offset;
+				be_t<u32> nid_offset;
+				be_t<u32> stub_offset;
+				//...
+			};
+
+			struct sprx_function_info
+			{
+				be_t<u32> name_table_offset;
+				be_t<u32> entry_table_offset;
+				be_t<u32> padding;
+			} m_sprx_function_info;
+
+			struct sprx_lib_info
+			{
+				std::string name;
+			};
+
+			struct sprx_segment_info
+			{
+				vm::ptr<void> begin;
+				u32 size;
+				u32 size_file;
+				vm::ptr<void> initial_addr;
+				std::vector<sprx_module_info> modules;
+			};
+
+			struct sprx_info
+			{
+				std::string name;
+				u32 rtoc;
+
+				struct module_info
+				{
+					std::unordered_map<u32, u32> exports;
+					std::unordered_map<u32, u32> imports;
+				};
+
+				std::unordered_map<std::string, module_info> modules;
+				std::vector<sprx_segment_info> segments;
+			};
+
+			std::vector<phdr> m_phdrs;
+			std::vector<shdr> m_shdrs;
+
+			std::vector<sprx_segment_info> m_sprx_segments_info;
+			std::vector<sprx_import_info> m_sprx_import_info;
+			std::vector<sprx_export_info> m_sprx_export_info;
+
+		public:
+			virtual ~elf64() = default;
+
+			error_code init(vfsStream& stream) override;
+			error_code load() override;
+			error_code load_data(u64 offset);
+			error_code load_sprx(sprx_info& info);
+			bool is_sprx() const { return m_ehdr.e_type == 0xffa4; }
+			std::string sprx_get_module_name() const { return m_sprx_module_info.name; }
+		};
 	}
-
-	void Show()
-	{
-#ifdef LOADER_DEBUG
-		ConLog.Write("Magic: %08x",								e_magic);
-		ConLog.Write("Class: %s",								wxString("ELF64").wx_str());
-		ConLog.Write("Data: %s",								Ehdr_DataToString(e_data).wx_str());
-		ConLog.Write("Current Version: %d",						e_curver);
-		ConLog.Write("OS/ABI: %s",								Ehdr_OS_ABIToString(e_os_abi).wx_str());
-		ConLog.Write("ABI version: %lld",						e_abi_ver);
-		ConLog.Write("Type: %s",								Ehdr_TypeToString(e_type).wx_str());
-		ConLog.Write("Machine: %s",								Ehdr_MachineToString(e_machine).wx_str());
-		ConLog.Write("Version: %d",								e_version);
-		ConLog.Write("Entry point address: 0x%08llx",			e_entry);
-		ConLog.Write("Program headers offset: 0x%08llx",		e_phoff);
-		ConLog.Write("Section headers offset: 0x%08llx",		e_shoff);
-		ConLog.Write("Flags: 0x%x",								e_flags);
-		ConLog.Write("Size of this header: %d",					e_ehsize);
-		ConLog.Write("Size of program headers: %d",				e_phentsize);
-		ConLog.Write("Number of program headers: %d",			e_phnum);
-		ConLog.Write("Size of section headers: %d",				e_shentsize);
-		ConLog.Write("Number of section headers: %d",			e_shnum);
-		ConLog.Write("Section header string table index: %d",	e_shstrndx);
-#endif
-	}
-
-	bool CheckMagic() const { return e_magic == 0x7F454C46; }
-	u32 GetEntry() const { return e_entry; }
-};
-
-struct Elf64_Shdr
-{
-	u32 sh_name; 
-	u32 sh_type;
-	u64 sh_flags;
-	u64 sh_addr;
-	u64 sh_offset;
-	u64 sh_size;
-	u32 sh_link;
-	u32 sh_info;
-	u64 sh_addralign;
-	u64 sh_entsize;
-
-	void Load(vfsStream& f)
-	{
-		sh_name			= Read32(f);
-		sh_type			= Read32(f);
-		sh_flags		= Read64(f);
-		sh_addr			= Read64(f);
-		sh_offset		= Read64(f);
-		sh_size			= Read64(f);
-		sh_link			= Read32(f);
-		sh_info			= Read32(f);
-		sh_addralign	= Read64(f);
-		sh_entsize		= Read64(f);
-	}
-
-	void Show()
-	{
-#ifdef LOADER_DEBUG
-		ConLog.Write("Name offset: %x",		sh_name);
-		ConLog.Write("Type: %d",			sh_type);
-		ConLog.Write("Addr: %llx",			sh_addr);
-		ConLog.Write("Offset: %llx",		sh_offset);
-		ConLog.Write("Size: %llx",			sh_size);
-		ConLog.Write("EntSize: %lld",		sh_entsize);
-		ConLog.Write("Flags: %llx",			sh_flags);
-		ConLog.Write("Link: %x",			sh_link);
-		ConLog.Write("Info: %x",			sh_info);
-		ConLog.Write("Address align: %llx",	sh_addralign);
-#endif
-	}
-};
-
-struct Elf64_Phdr
-{
-	u32	p_type;
-	u32	p_flags;
-	u64	p_offset;
-	u64	p_vaddr;
-	u64	p_paddr;
-	u64	p_filesz;
-	u64	p_memsz;
-	u64	p_align;
-
-	void Load(vfsStream& f)
-	{
-		p_type		= Read32(f);
-		p_flags		= Read32(f);
-		p_offset	= Read64(f);
-		p_vaddr		= Read64(f);
-		p_paddr		= Read64(f);
-		p_filesz	= Read64(f);
-		p_memsz		= Read64(f);
-		p_align		= Read64(f);
-	}
-
-	void Show()
-	{
-#ifdef LOADER_DEBUG
-		ConLog.Write("Type: %s",					Phdr_TypeToString(p_type).wx_str());
-		ConLog.Write("Offset: 0x%08llx",			p_offset);
-		ConLog.Write("Virtual address: 0x%08llx",	p_vaddr);
-		ConLog.Write("Physical address: 0x%08llx",	p_paddr);
-		ConLog.Write("File size: 0x%08llx",			p_filesz);
-		ConLog.Write("Memory size: 0x%08llx",		p_memsz);
-		ConLog.Write("Flags: %s",					Phdr_FlagsToString(p_flags).wx_str());
-		ConLog.Write("Align: 0x%llx",				p_align);
-#endif
-	}
-};
-
-class ELF64Loader : public LoaderBase
-{
-	vfsStream& elf64_f;
-
-public:
-	Elf64_Ehdr ehdr;
-	wxArrayString shdr_name_arr;
-	Array<Elf64_Shdr> shdr_arr;
-	Array<Elf64_Phdr> phdr_arr;
-
-	ELF64Loader(vfsStream& f);
-	~ELF64Loader() {Close();}
-
-	virtual bool LoadInfo();
-	virtual bool LoadData(u64 offset = 0);
-	virtual bool Close();
-
-	bool LoadEhdrInfo(s64 offset=-1);
-	bool LoadPhdrInfo(s64 offset=-1);
-	bool LoadShdrInfo(s64 offset=-1);
-
-private:
-	bool LoadEhdrData(u64 offset);
-	bool LoadPhdrData(u64 offset);
-	bool LoadShdrData(u64 offset);
-
-	//bool LoadImports();
-};
-
-void WriteEhdr(wxFile& f, Elf64_Ehdr& ehdr);
-void WritePhdr(wxFile& f, Elf64_Phdr& phdr);
-void WriteShdr(wxFile& f, Elf64_Shdr& shdr);
+}

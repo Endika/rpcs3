@@ -1,576 +1,492 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#include "Emu/Memory/Memory.h"
+#include "Emu/SysCalls/Modules.h"
 
+#include "Utilities/rTime.h"
 #include "cellRtc.h"
 
-void cellRtc_init();
-Module cellRtc(0x0009, cellRtc_init);
+Module *cellRtc = nullptr;
 
-long convertToUNIXTime(u16 seconds, u16 minutes, u16 hours, u16 days, int years)
+s64 convertToUNIXTime(u16 seconds, u16 minutes, u16 hours, u16 days, int years)
 {
-	return (seconds + minutes*60 + hours*3600 + days*86400 + (years-70)*31536000 + ((years-69)/4)*86400 - ((years-1)/100)*86400 + ((years+299)/400)*86400);
+	return (s64)seconds + (s64)minutes * 60 + (s64)hours * 3600 + (s64)days * 86400 + 
+		(s64)(years - 70) * 31536000 + (s64)((years - 69) / 4) * 86400 -
+		(s64)((years - 1) / 100) * 86400 + (s64)((years + 299) / 400) * 86400;
 }
 
 u64 convertToWin32FILETIME(u16 seconds, u16 minutes, u16 hours, u16 days, int years)
 {
-	long unixtime = convertToUNIXTime(seconds, minutes, hours, days, years);
+	s64 unixtime = convertToUNIXTime(seconds, minutes, hours, days, years);
 	u64 win32time = u64(unixtime) * u64(10000000) + u64(116444736000000000);
 	u64 win32filetime = win32time | win32time >> 32;
 	return win32filetime;
 }
 
-int cellRtcGetCurrentTick(mem64_t tick)
+int cellRtcGetCurrentTick(vm::ptr<CellRtcTick> pTick)
 {
-	cellRtc.Log("cellRtcGetCurrentTick(tick_addr=0x%x)", tick.GetAddr());
-	wxDateTime unow = wxDateTime::UNow();
-	tick = unow.GetTicks();
+	cellRtc->Log("cellRtcGetCurrentTick(pTick=0x%x)", pTick.addr());
+
+	rDateTime unow = rDateTime::UNow();
+	pTick->tick = unow.GetTicks();
 	return CELL_OK;
 }
 
-int cellRtcGetCurrentClock(u32 clock_addr, int time_zone)
+int cellRtcGetCurrentClock(vm::ptr<CellRtcDateTime> pClock, s32 iTimeZone)
 {
-	cellRtc.Log("cellRtcGetCurrentClock(clock_addr=0x%x, time_zone=%d)", clock_addr, time_zone);
-	wxDateTime unow = wxDateTime::UNow();
+	cellRtc->Log("cellRtcGetCurrentClock(pClock=0x%x, time_zone=%d)", pClock.addr(), iTimeZone);
+
+	rDateTime unow = rDateTime::UNow();
 
 	// Add time_zone as offset in minutes.
-	wxTimeSpan tz = wxTimeSpan::wxTimeSpan(0, (long) time_zone, 0, 0);
+	rTimeSpan tz = rTimeSpan(0, (long) iTimeZone, 0, 0);
 	unow.Add(tz);
 
-	Memory.Write16(clock_addr, unow.GetYear(wxDateTime::TZ::UTC));
-	Memory.Write16(clock_addr + 2, unow.GetMonth(wxDateTime::TZ::UTC));
-	Memory.Write16(clock_addr + 4, unow.GetDay(wxDateTime::TZ::UTC));
-	Memory.Write16(clock_addr + 6, unow.GetHour(wxDateTime::TZ::UTC));
-	Memory.Write16(clock_addr + 8, unow.GetMinute(wxDateTime::TZ::UTC));
-	Memory.Write16(clock_addr + 10, unow.GetSecond(wxDateTime::TZ::UTC));
-	Memory.Write32(clock_addr + 12, unow.GetMillisecond(wxDateTime::TZ::UTC) * 1000);
+	pClock->year = unow.GetYear(rDateTime::TZ::UTC);
+	pClock->month = unow.GetMonth(rDateTime::TZ::UTC);
+	pClock->day = unow.GetDay(rDateTime::TZ::UTC);
+	pClock->hour = unow.GetHour(rDateTime::TZ::UTC);
+	pClock->minute = unow.GetMinute(rDateTime::TZ::UTC);
+	pClock->second = unow.GetSecond(rDateTime::TZ::UTC);
+	pClock->microsecond = unow.GetMillisecond(rDateTime::TZ::UTC) * 1000;
 
 	return CELL_OK;
 }
 
-int cellRtcGetCurrentClockLocalTime(u32 clock_addr)
+int cellRtcGetCurrentClockLocalTime(vm::ptr<CellRtcDateTime> pClock)
 {
-	cellRtc.Log("cellRtcGetCurrentClockLocalTime(clock_addr=0x%x)", clock_addr);
-	wxDateTime unow = wxDateTime::UNow();
+	cellRtc->Log("cellRtcGetCurrentClockLocalTime(pClock=0x%x)", pClock.addr());
 
-	Memory.Write16(clock_addr, unow.GetYear(wxDateTime::TZ::Local));
-	Memory.Write16(clock_addr + 2, unow.GetMonth(wxDateTime::TZ::Local));
-	Memory.Write16(clock_addr + 4, unow.GetDay(wxDateTime::TZ::Local));
-	Memory.Write16(clock_addr + 6, unow.GetHour(wxDateTime::TZ::Local));
-	Memory.Write16(clock_addr + 8, unow.GetMinute(wxDateTime::TZ::Local));
-	Memory.Write16(clock_addr + 10, unow.GetSecond(wxDateTime::TZ::Local));
-	Memory.Write32(clock_addr + 12, unow.GetMillisecond(wxDateTime::TZ::Local) * 1000);
+	rDateTime unow = rDateTime::UNow();
+
+	pClock->year = unow.GetYear(rDateTime::TZ::Local);
+	pClock->month = unow.GetMonth(rDateTime::TZ::Local);
+	pClock->day = unow.GetDay(rDateTime::TZ::Local);
+	pClock->hour = unow.GetHour(rDateTime::TZ::Local);
+	pClock->minute = unow.GetMinute(rDateTime::TZ::Local);
+	pClock->second = unow.GetSecond(rDateTime::TZ::Local);
+	pClock->microsecond = unow.GetMillisecond(rDateTime::TZ::Local) * 1000;
 
 	return CELL_OK;
 }
 
-int cellRtcFormatRfc2822(u32 rfc_addr, u32 tick_addr, int time_zone)
+int cellRtcFormatRfc2822(vm::ptr<char> pszDateTime, vm::ptr<CellRtcTick> pUtc, s32 iTimeZone)
 {
-	cellRtc.Log("cellRtcFormatRfc2822(rfc_addr=0x%x, tick_addr=0x%x, time_zone=%d)", rfc_addr, tick_addr, time_zone);
-	CellRtcTick current_tick;
-	current_tick.tick = Memory.Read64(tick_addr);
+	cellRtc->Log("cellRtcFormatRfc2822(pszDateTime_addr=0x%x, pUtc=0x%x, time_zone=%d)", pszDateTime.addr(), pUtc.addr(), iTimeZone);
 
 	// Add time_zone as offset in minutes.
-	wxTimeSpan tz = wxTimeSpan::wxTimeSpan(0, (long) time_zone, 0, 0);
+	rTimeSpan tz = rTimeSpan(0, (long) iTimeZone, 0, 0);
 
 	// Get date from ticks + tz.
-	wxDateTime date = wxDateTime::wxDateTime((time_t)current_tick.tick);
+	rDateTime date = rDateTime((time_t)pUtc->tick);
 	date.Add(tz);
 
 	// Format date string in RFC2822 format (e.g.: Mon, 01 Jan 1990 12:00:00 +0000).
-	const wxString& str = date.Format("%a, %d %b %Y %T %z", wxDateTime::TZ::UTC);
-	Memory.WriteString(rfc_addr, str);
+	const std::string& str = date.Format("%a, %d %b %Y %T %z", rDateTime::TZ::UTC);
+	memcpy(pszDateTime.get_ptr(), str.c_str(), str.size() + 1);
 
 	return CELL_OK;
 }
 
-int cellRtcFormatRfc2822LocalTime(u32 rfc_addr, u32 tick_addr)
+int cellRtcFormatRfc2822LocalTime(vm::ptr<char> pszDateTime, vm::ptr<CellRtcTick> pUtc)
 {
-	cellRtc.Log("cellRtcFormatRfc2822LocalTime(rfc_addr=0x%x, tick_addr=0x%x)", rfc_addr, tick_addr);
-	CellRtcTick current_tick;
-	current_tick.tick = Memory.Read64(tick_addr);
+	cellRtc->Log("cellRtcFormatRfc2822LocalTime(pszDateTime_addr=0x%x, pUtc=0x%x)", pszDateTime.addr(), pUtc.addr());
 
 	// Get date from ticks.
-	wxDateTime date = wxDateTime::wxDateTime((time_t)current_tick.tick);
+	rDateTime date = rDateTime((time_t)pUtc->tick);
 
 	// Format date string in RFC2822 format (e.g.: Mon, 01 Jan 1990 12:00:00 +0000).
-	const wxString& str = date.Format("%a, %d %b %Y %T %z", wxDateTime::TZ::Local);
-	Memory.WriteString(rfc_addr, str);
+	const std::string& str = date.Format("%a, %d %b %Y %T %z", rDateTime::TZ::Local);
+	memcpy(pszDateTime.get_ptr(), str.c_str(), str.size() + 1);
 
 	return CELL_OK;
 }
 
-int cellRtcFormatRfc3339(u32 rfc_addr, u32 tick_addr, int time_zone)
+int cellRtcFormatRfc3339(vm::ptr<char> pszDateTime, vm::ptr<CellRtcTick> pUtc, s32 iTimeZone)
 {
-	cellRtc.Log("cellRtcFormatRfc3339(rfc_addr=0x%x, tick_addr=0x%x, time_zone=%d)", rfc_addr, tick_addr, time_zone);
-	CellRtcTick current_tick;
-	current_tick.tick = Memory.Read64(tick_addr);
-
+	cellRtc->Log("cellRtcFormatRfc3339(pszDateTime_addr=0x%x, pUtc=0x%x, iTimeZone=%d)", pszDateTime.addr(), pUtc.addr(), iTimeZone);
+	
 	// Add time_zone as offset in minutes.
-	wxTimeSpan tz = wxTimeSpan::wxTimeSpan(0, (long) time_zone, 0, 0);
+	rTimeSpan tz = rTimeSpan(0, (long) iTimeZone, 0, 0);
 
 	// Get date from ticks + tz.
-	wxDateTime date = wxDateTime::wxDateTime((time_t)current_tick.tick);
+	rDateTime date = rDateTime((time_t)pUtc->tick);
 	date.Add(tz);
 
 	// Format date string in RFC3339 format (e.g.: 1990-01-01T12:00:00.00Z).
-	const wxString& str = date.Format("%FT%T.%zZ", wxDateTime::TZ::UTC);
-	Memory.WriteString(rfc_addr, str);
+	const std::string& str = date.Format("%FT%T.%zZ", rDateTime::TZ::UTC);
+	memcpy(pszDateTime.get_ptr(), str.c_str(), str.size() + 1);
 
 	return CELL_OK;
 }
 
-int cellRtcFormatRfc3339LocalTime(u32 rfc_addr, u32 tick_addr)
+int cellRtcFormatRfc3339LocalTime(vm::ptr<char> pszDateTime, vm::ptr<CellRtcTick> pUtc)
 {
-	cellRtc.Log("cellRtcFormatRfc3339LocalTime(rfc_addr=0x%x, tick_addr=0x%x)", rfc_addr, tick_addr);
-	CellRtcTick current_tick;
-	current_tick.tick = Memory.Read64(tick_addr);
-
+	cellRtc->Log("cellRtcFormatRfc3339LocalTime(pszDateTime_addr=0x%x, pUtc=0x%x)", pszDateTime.addr(), pUtc.addr());
+	
 	// Get date from ticks.
-	wxDateTime date = wxDateTime::wxDateTime((time_t)current_tick.tick);
+	rDateTime date = rDateTime((time_t) pUtc->tick);
 	
 	// Format date string in RFC3339 format (e.g.: 1990-01-01T12:00:00.00Z).
-	const wxString& str = date.Format("%FT%T.%zZ", wxDateTime::TZ::Local);
-	Memory.WriteString(rfc_addr, str);
+	const std::string& str = date.Format("%FT%T.%zZ", rDateTime::TZ::Local);
+	memcpy(pszDateTime.get_ptr(), str.c_str(), str.size() + 1);
 
 	return CELL_OK;
 }
 
-int cellRtcParseDateTime(mem64_t tick, u32 datetime_addr)
+int cellRtcParseDateTime(vm::ptr<CellRtcTick> pUtc, vm::ptr<const char> pszDateTime)
 {
-	cellRtc.Log("cellRtcParseDateTime(tick_addr=0x%x, datetime_addr=0x%x)", tick.GetAddr(), datetime_addr);
-
-	const wxString& format = Memory.ReadString(datetime_addr);
+	cellRtc->Log("cellRtcParseDateTime(pUtc=0x%x, pszDateTime_addr=0x%x)", pUtc.addr(), pszDateTime.addr());
 
 	// Get date from formatted string.
-	wxDateTime date;
-	date.ParseDateTime(format);
+	rDateTime date;
+	date.ParseDateTime(pszDateTime.get_ptr());
 
-	tick = date.GetTicks();
+	pUtc->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcParseRfc3339(mem64_t tick, u32 datetime_addr)
+int cellRtcParseRfc3339(vm::ptr<CellRtcTick> pUtc, vm::ptr<const char> pszDateTime)
 {
-	cellRtc.Log("cellRtcParseRfc3339(tick_addr=0x%x, datetime_addr=0x%x)", tick.GetAddr(), datetime_addr);
-
-	const wxString& format = Memory.ReadString(datetime_addr);
+	cellRtc->Log("cellRtcParseRfc3339(pUtc=0x%x, pszDateTime_addr=0x%x)", pUtc.addr(), pszDateTime.addr());
 
 	// Get date from RFC3339 formatted string.
-	wxDateTime date;
-	date.ParseDateTime(format);
+	rDateTime date;
+	date.ParseDateTime(pszDateTime.get_ptr());
 
-	tick = date.GetTicks();
+	pUtc->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcGetTick(u32 clock_addr, mem64_t tick)
+int cellRtcGetTick(vm::ptr<CellRtcDateTime> pTime, vm::ptr<CellRtcTick> pTick)
 {
-	cellRtc.Log("cellRtcGetTick(clock_addr=0x%x, tick_addr=0x%x)", clock_addr, tick.GetAddr());
+	cellRtc->Log("cellRtcGetTick(pTime=0x%x, pTick=0x%x)", pTime.addr(), pTick.addr());
 
-	CellRtcDateTime clock;
-	clock.year = Memory.Read16(clock_addr);
-	clock.month = Memory.Read16(clock_addr + 2);
-	clock.day = Memory.Read16(clock_addr + 4);
-	clock.hour = Memory.Read16(clock_addr + 6);
-	clock.minute = Memory.Read16(clock_addr + 8);
-	clock.second = Memory.Read16(clock_addr + 10);
-	clock.microsecond = Memory.Read32(clock_addr + 12);
-
-	wxDateTime datetime = wxDateTime::wxDateTime(clock.day, (wxDateTime::Month)clock.month, clock.year, clock.hour, clock.minute, clock.second, (clock.microsecond / 1000));
-	tick = datetime.GetTicks();
+	rDateTime datetime = rDateTime(pTime->day, (rDateTime::Month)pTime->month.ToLE(), pTime->year, pTime->hour, pTime->minute, pTime->second, (pTime->microsecond / 1000));
+	pTick->tick = datetime.GetTicks();
 	
 	return CELL_OK;
 }
 
-int cellRtcSetTick(u32 clock_addr, u32 tick_addr)
+int cellRtcSetTick(vm::ptr<CellRtcDateTime> pTime, vm::ptr<CellRtcTick> pTick)
 {
-	cellRtc.Log("cellRtcSetTick(clock_addr=0x%x, tick_addr=0x%x)", clock_addr, tick_addr);
-	CellRtcTick current_tick;
-	current_tick.tick = Memory.Read64(tick_addr);
-
-	wxDateTime date = wxDateTime::wxDateTime((time_t)current_tick.tick);
-
-	CellRtcDateTime clock;
-	clock.year = date.GetYear(wxDateTime::TZ::UTC);
-	clock.month = date.GetMonth(wxDateTime::TZ::UTC);
-	clock.day = date.GetDay(wxDateTime::TZ::UTC);
-	clock.hour = date.GetHour(wxDateTime::TZ::UTC);
-	clock.minute = date.GetMinute(wxDateTime::TZ::UTC);
-	clock.second = date.GetSecond(wxDateTime::TZ::UTC);
-	clock.microsecond = date.GetMillisecond(wxDateTime::TZ::UTC) * 1000;
-
-	Memory.Write16(clock_addr, clock.year);
-	Memory.Write16(clock_addr + 2, clock.month);
-	Memory.Write16(clock_addr + 4, clock.day);
-	Memory.Write16(clock_addr + 6, clock.hour);
-	Memory.Write16(clock_addr + 8, clock.minute);
-	Memory.Write16(clock_addr + 10, clock.second);
-	Memory.Write32(clock_addr + 12, clock.microsecond);
-
-	return CELL_OK;
-}
-
-int cellRtcTickAddTicks(mem64_t tick, u32 tick_add_addr, long add)
-{
-	cellRtc.Log("cellRtcTickAddTicks(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	tick = Memory.Read64(tick_add_addr) + add;
-
-	return CELL_OK;
-}
-
-int cellRtcTickAddMicroseconds(mem64_t tick, u32 tick_add_addr, long add)
-{
-	cellRtc.Log("cellRtcTickAddMicroseconds(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
+	cellRtc->Log("cellRtcSetTick(pTime=0x%x, pTick=0x%x)", pTime.addr(), pTick.addr());
 	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxTimeSpan microseconds = wxTimeSpan::wxTimeSpan(0, 0, 0, add / 1000);
+	rDateTime date = rDateTime((time_t)pTick->tick);
+
+	pTime->year = date.GetYear(rDateTime::TZ::UTC);
+	pTime->month = date.GetMonth(rDateTime::TZ::UTC);
+	pTime->day = date.GetDay(rDateTime::TZ::UTC);
+	pTime->hour = date.GetHour(rDateTime::TZ::UTC);
+	pTime->minute = date.GetMinute(rDateTime::TZ::UTC);
+	pTime->second = date.GetSecond(rDateTime::TZ::UTC);
+	pTime->microsecond = date.GetMillisecond(rDateTime::TZ::UTC) * 1000;
+
+	return CELL_OK;
+}
+
+int cellRtcTickAddTicks(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s64 lAdd)
+{
+	cellRtc->Log("cellRtcTickAddTicks(pTick0=0x%x, pTick1=0x%x, lAdd=%lld)", pTick0.addr(), pTick1.addr(), lAdd);
+
+	pTick0->tick = pTick1->tick + lAdd;
+	return CELL_OK;
+}
+
+int cellRtcTickAddMicroseconds(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s64 lAdd)
+{
+	cellRtc->Log("cellRtcTickAddMicroseconds(pTick0=0x%x, pTick1=0x%x, lAdd=%lld)", pTick0.addr(), pTick1.addr(), lAdd);
+	
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rTimeSpan microseconds = rTimeSpan(0, 0, 0, lAdd / 1000);
 	date.Add(microseconds);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddSeconds(mem64_t tick, u32 tick_add_addr, long add)
+int cellRtcTickAddSeconds(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s64 lAdd)
 {
-	cellRtc.Log("cellRtcTickAddSeconds(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxTimeSpan seconds = wxTimeSpan::wxTimeSpan(0, 0, add, 0);
+	cellRtc->Log("cellRtcTickAddSeconds(pTick0=0x%x, pTick1=0x%x, lAdd=%lld)", pTick0.addr(), pTick1.addr(), lAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rTimeSpan seconds = rTimeSpan(0, 0, lAdd, 0);
 	date.Add(seconds);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddMinutes(mem64_t tick, u32 tick_add_addr, long add)
+int cellRtcTickAddMinutes(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s64 lAdd)
 {
-	cellRtc.Log("cellRtcTickAddMinutes(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
+	cellRtc->Log("cellRtcTickAddMinutes(pTick0=0x%x, pTick1=0x%x, lAdd=%lld)", pTick0.addr(), pTick1.addr(), lAdd);
 	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxTimeSpan minutes = wxTimeSpan::wxTimeSpan(0, add, 0, 0);
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rTimeSpan minutes = rTimeSpan(0, lAdd, 0, 0); // ???
 	date.Add(minutes);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddHours(mem64_t tick, u32 tick_add_addr, int add)
+int cellRtcTickAddHours(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s32 iAdd)
 {
-	cellRtc.Log("cellRtcTickAddHours(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxTimeSpan hours = wxTimeSpan::wxTimeSpan(add, 0, 0, 0);
+	cellRtc->Log("cellRtcTickAddHours(pTick0=0x%x, pTick1=0x%x, iAdd=%d)", pTick0.addr(), pTick1.addr(), iAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rTimeSpan hours = rTimeSpan(iAdd, 0, 0, 0); // ???
 	date.Add(hours);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddDays(mem64_t tick, u32 tick_add_addr, int add)
+int cellRtcTickAddDays(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s32 iAdd)
 {
-	cellRtc.Log("cellRtcTickAddDays(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxDateSpan days = wxDateSpan::wxDateSpan(0, 0, 0, add);
+	cellRtc->Log("cellRtcTickAddDays(pTick0=0x%x, pTick1=0x%x, iAdd=%d)", pTick0.addr(), pTick1.addr(), iAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rDateSpan days = rDateSpan(0, 0, 0, iAdd); // ???
 	date.Add(days);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddWeeks(mem64_t tick, u32 tick_add_addr, int add)
+int cellRtcTickAddWeeks(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s32 iAdd)
 {
-	cellRtc.Log("cellRtcTickAddWeeks(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxDateSpan weeks = wxDateSpan::wxDateSpan(0, 0, add, 0);
+	cellRtc->Log("cellRtcTickAddWeeks(pTick0=0x%x, pTick1=0x%x, iAdd=%d)", pTick0.addr(), pTick1.addr(), iAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rDateSpan weeks = rDateSpan(0, 0, iAdd, 0);
 	date.Add(weeks);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddMonths(mem64_t tick, u32 tick_add_addr, int add)
+int cellRtcTickAddMonths(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s32 iAdd)
 {
-	cellRtc.Log("cellRtcTickAddMonths(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxDateSpan months = wxDateSpan::wxDateSpan(0, add, 0, 0);
+	cellRtc->Log("cellRtcTickAddMonths(pTick0=0x%x, pTick1=0x%x, iAdd=%d)", pTick0.addr(), pTick1.addr(), iAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rDateSpan months = rDateSpan(0, iAdd, 0, 0);
 	date.Add(months);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcTickAddYears(mem64_t tick, u32 tick_add_addr, int add)
+int cellRtcTickAddYears(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1, s32 iAdd)
 {
-	cellRtc.Log("cellRtcTickAddYears(tick_addr=0x%x, tick_add_addr=0x%x, add=%l)", tick.GetAddr(), tick_add_addr, add);
-	
-	wxDateTime date = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_add_addr));
-	wxDateSpan years = wxDateSpan::wxDateSpan(add, 0, 0, 0);
+	cellRtc->Log("cellRtcTickAddYears(pTick0=0x%x, pTick1=0x%x, iAdd=%d)", pTick0.addr(), pTick1.addr(), iAdd);
+
+	rDateTime date = rDateTime((time_t)pTick1->tick);
+	rDateSpan years = rDateSpan(iAdd, 0, 0, 0);
 	date.Add(years);
-	tick = date.GetTicks();
+	pTick0->tick = date.GetTicks();
 
 	return CELL_OK;
 }
 
-int cellRtcConvertUtcToLocalTime(u32 tick_utc_addr, mem64_t tick_local)
+int cellRtcConvertUtcToLocalTime(vm::ptr<CellRtcTick> pUtc, vm::ptr<CellRtcTick> pLocalTime)
 {
-	cellRtc.Log("cellRtcConvertUtcToLocalTime(tick_utc_addr=0x%x, tick_local_addr=0x%x)", tick_utc_addr, tick_local.GetAddr());
-	wxDateTime time = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_utc_addr));
-	wxDateTime local_time = time.FromUTC(false);
-	tick_local = local_time.GetTicks();
+	cellRtc->Log("cellRtcConvertUtcToLocalTime(pUtc=0x%x, pLocalTime=0x%x)", pUtc.addr(), pLocalTime.addr());
+
+	rDateTime time = rDateTime((time_t)pUtc->tick);
+	rDateTime local_time = time.FromUTC(false);
+	pLocalTime->tick = local_time.GetTicks();
 	return CELL_OK;
 }
 
-int cellRtcConvertLocalTimeToUtc(u32 tick_local_addr, mem64_t tick_utc)
+int cellRtcConvertLocalTimeToUtc(vm::ptr<CellRtcTick> pLocalTime, vm::ptr<CellRtcTick> pUtc)
 {
-	cellRtc.Log("cellRtcConvertLocalTimeToUtc(tick_local_addr=0x%x, tick_utc_addr=0x%x)", tick_local_addr, tick_utc.GetAddr());
-	wxDateTime time = wxDateTime::wxDateTime((time_t)Memory.Read64(tick_local_addr));
-	wxDateTime utc_time = time.ToUTC(false);
-	tick_utc = utc_time.GetTicks();
+	cellRtc->Log("cellRtcConvertLocalTimeToUtc(pLocalTime=0x%x, pUtc=0x%x)", pLocalTime.addr(), pUtc.addr());
+
+	rDateTime time = rDateTime((time_t)pLocalTime->tick);
+	rDateTime utc_time = time.ToUTC(false);
+	pUtc->tick = utc_time.GetTicks();
 	return CELL_OK;
 }
 
-int cellRtcGetDosTime(u32 datetime_addr, mem64_t dos_time)
+int cellRtcGetDosTime(vm::ptr<CellRtcDateTime> pDateTime, vm::ptr<u32> puiDosTime)
 {
-	cellRtc.Log("cellRtcGetDosTime(datetime_addr=0x%x, dos_time_addr=0x%x)", datetime_addr, dos_time.GetAddr());
-	CellRtcDateTime datetime;
-	datetime.year = Memory.Read16(datetime_addr);
-	datetime.month = Memory.Read16(datetime_addr + 2);
-	datetime.day = Memory.Read16(datetime_addr + 4);
-	datetime.hour = Memory.Read16(datetime_addr + 6);
-	datetime.minute = Memory.Read16(datetime_addr + 8);
-	datetime.second = Memory.Read16(datetime_addr + 10);
-	datetime.microsecond = Memory.Read32(datetime_addr + 12);
+	cellRtc->Log("cellRtcGetDosTime(pDateTime=0x%x, puiDosTime=0x%x)", pDateTime.addr(), puiDosTime.addr());
 
 	// Convert to DOS time.
-	wxDateTime date_time = wxDateTime::wxDateTime(datetime.day, (wxDateTime::Month)datetime.month, datetime.year, datetime.hour, datetime.minute, datetime.second, (datetime.microsecond / 1000));
-	dos_time = date_time.GetAsDOS();
+	rDateTime date_time = rDateTime(pDateTime->day, (rDateTime::Month)pDateTime->month.ToLE(), pDateTime->year, pDateTime->hour, pDateTime->minute, pDateTime->second, (pDateTime->microsecond / 1000));
+	*puiDosTime = date_time.GetAsDOS();
 
 	return CELL_OK;
 }
 
-int cellRtcGetTime_t(u32 datetime_addr, mem64_t posix_time)
+int cellRtcGetTime_t(vm::ptr<CellRtcDateTime> pDateTime, vm::ptr<s64> piTime)
 {
-	cellRtc.Log("cellRtcGetTime_t(datetime_addr=0x%x, posix_time_addr=0x%x)", datetime_addr, posix_time.GetAddr());
-	CellRtcDateTime datetime;
-	datetime.year = Memory.Read16(datetime_addr);
-	datetime.month = Memory.Read16(datetime_addr + 2);
-	datetime.day = Memory.Read16(datetime_addr + 4);
-	datetime.hour = Memory.Read16(datetime_addr + 6);
-	datetime.minute = Memory.Read16(datetime_addr + 8);
-	datetime.second = Memory.Read16(datetime_addr + 10);
-	datetime.microsecond = Memory.Read32(datetime_addr + 12);
+	cellRtc->Log("cellRtcGetTime_t(pDateTime=0x%x, piTime=0x%x)", pDateTime.addr(), piTime.addr());
 
 	// Convert to POSIX time_t.
-	wxDateTime date_time = wxDateTime::wxDateTime(datetime.day, (wxDateTime::Month)datetime.month, datetime.year, datetime.hour, datetime.minute, datetime.second, (datetime.microsecond / 1000));
-	posix_time = convertToUNIXTime(date_time.GetSecond(wxDateTime::TZ::UTC), date_time.GetMinute(wxDateTime::TZ::UTC),
-		date_time.GetHour(wxDateTime::TZ::UTC), date_time.GetDay(wxDateTime::TZ::UTC), date_time.GetYear(wxDateTime::TZ::UTC));
+	rDateTime date_time = rDateTime(pDateTime->day, (rDateTime::Month)pDateTime->month.ToLE(), pDateTime->year, pDateTime->hour, pDateTime->minute, pDateTime->second, (pDateTime->microsecond / 1000));
+	*piTime = convertToUNIXTime(date_time.GetSecond(rDateTime::TZ::UTC), date_time.GetMinute(rDateTime::TZ::UTC),
+		date_time.GetHour(rDateTime::TZ::UTC), date_time.GetDay(rDateTime::TZ::UTC), date_time.GetYear(rDateTime::TZ::UTC));
 
 	return CELL_OK;
 }
 
-int cellRtcGetWin32FileTime(u32 datetime_addr, mem64_t win32_time)
+int cellRtcGetWin32FileTime(vm::ptr<CellRtcDateTime> pDateTime, vm::ptr<u64> pulWin32FileTime)
 {
-	cellRtc.Log("cellRtcGetWin32FileTime(datetime_addr=0x%x, win32_time_addr=0x%x)", datetime_addr, win32_time.GetAddr());
-	CellRtcDateTime datetime;
-	datetime.year = Memory.Read16(datetime_addr);
-	datetime.month = Memory.Read16(datetime_addr + 2);
-	datetime.day = Memory.Read16(datetime_addr + 4);
-	datetime.hour = Memory.Read16(datetime_addr + 6);
-	datetime.minute = Memory.Read16(datetime_addr + 8);
-	datetime.second = Memory.Read16(datetime_addr + 10);
-	datetime.microsecond = Memory.Read32(datetime_addr + 12);
+	cellRtc->Log("cellRtcGetWin32FileTime(pDateTime=0x%x, pulWin32FileTime=0x%x)", pDateTime.addr(), pulWin32FileTime.addr());
 
 	// Convert to WIN32 FILETIME.
-	wxDateTime date_time = wxDateTime::wxDateTime(datetime.day, (wxDateTime::Month)datetime.month, datetime.year, datetime.hour, datetime.minute, datetime.second, (datetime.microsecond / 1000));
-	win32_time = convertToWin32FILETIME(date_time.GetSecond(wxDateTime::TZ::UTC), date_time.GetMinute(wxDateTime::TZ::UTC),
-		date_time.GetHour(wxDateTime::TZ::UTC), date_time.GetDay(wxDateTime::TZ::UTC), date_time.GetYear(wxDateTime::TZ::UTC));
+	rDateTime date_time = rDateTime(pDateTime->day, (rDateTime::Month)pDateTime->month.ToLE(), pDateTime->year, pDateTime->hour, pDateTime->minute, pDateTime->second, (pDateTime->microsecond / 1000));
+	*pulWin32FileTime = convertToWin32FILETIME(date_time.GetSecond(rDateTime::TZ::UTC), date_time.GetMinute(rDateTime::TZ::UTC),
+		date_time.GetHour(rDateTime::TZ::UTC), date_time.GetDay(rDateTime::TZ::UTC), date_time.GetYear(rDateTime::TZ::UTC));
 
 	return CELL_OK;
 }
 
-int cellRtcSetDosTime(u32 datetime_addr, u32 dos_time_addr)
+int cellRtcSetDosTime(vm::ptr<CellRtcDateTime> pDateTime, u32 uiDosTime)
 {
-	cellRtc.Log("cellRtcSetDosTime(datetime_addr=0x%x, dos_time_addr=0x%x)", datetime_addr, dos_time_addr);
-	
-	wxDateTime date_time;
-	wxDateTime dos_time = date_time.SetFromDOS(Memory.Read32(dos_time_addr));
-	
-	CellRtcDateTime datetime;
-	datetime.year = dos_time.GetYear(wxDateTime::TZ::UTC);
-	datetime.month = dos_time.GetMonth(wxDateTime::TZ::UTC);
-	datetime.day = dos_time.GetDay(wxDateTime::TZ::UTC);
-	datetime.hour = dos_time.GetHour(wxDateTime::TZ::UTC);
-	datetime.minute = dos_time.GetMinute(wxDateTime::TZ::UTC);
-	datetime.second = dos_time.GetSecond(wxDateTime::TZ::UTC);
-	datetime.microsecond = dos_time.GetMillisecond(wxDateTime::TZ::UTC) * 1000;
+	cellRtc->Log("cellRtcSetDosTime(pDateTime=0x%x, uiDosTime=0x%x)", pDateTime.addr(), uiDosTime);
 
-	Memory.Write16(datetime_addr, datetime.year);
-	Memory.Write16(datetime_addr + 2, datetime.month);
-	Memory.Write16(datetime_addr + 4, datetime.day);
-	Memory.Write16(datetime_addr + 6, datetime.hour);
-	Memory.Write16(datetime_addr + 8, datetime.minute);
-	Memory.Write16(datetime_addr + 10, datetime.second);
-	Memory.Write32(datetime_addr + 12, datetime.microsecond);
+	rDateTime date_time;
+	rDateTime dos_time = date_time.SetFromDOS(uiDosTime);
+	
+	pDateTime->year = dos_time.GetYear(rDateTime::TZ::UTC);
+	pDateTime->month = dos_time.GetMonth(rDateTime::TZ::UTC);
+	pDateTime->day = dos_time.GetDay(rDateTime::TZ::UTC);
+	pDateTime->hour = dos_time.GetHour(rDateTime::TZ::UTC);
+	pDateTime->minute = dos_time.GetMinute(rDateTime::TZ::UTC);
+	pDateTime->second = dos_time.GetSecond(rDateTime::TZ::UTC);
+	pDateTime->microsecond = dos_time.GetMillisecond(rDateTime::TZ::UTC) * 1000;
 
 	return CELL_OK;
 }
 
-int cellRtcSetTime_t(u32 datetime_addr, u32 posix_time_addr)
+int cellRtcSetTime_t(vm::ptr<CellRtcDateTime> pDateTime, u64 iTime)
 {
-	cellRtc.Log("cellRtcSetTime_t(datetime_addr=0x%x, posix_time_addr=0x%x)", datetime_addr, posix_time_addr);
-	
-	wxDateTime date_time = wxDateTime::wxDateTime((time_t)Memory.Read64(posix_time_addr));
-	
-	CellRtcDateTime datetime;
-	datetime.year = date_time.GetYear(wxDateTime::TZ::UTC);
-	datetime.month = date_time.GetMonth(wxDateTime::TZ::UTC);
-	datetime.day = date_time.GetDay(wxDateTime::TZ::UTC);
-	datetime.hour = date_time.GetHour(wxDateTime::TZ::UTC);
-	datetime.minute = date_time.GetMinute(wxDateTime::TZ::UTC);
-	datetime.second = date_time.GetSecond(wxDateTime::TZ::UTC);
-	datetime.microsecond = date_time.GetMillisecond(wxDateTime::TZ::UTC) * 1000;
+	cellRtc->Log("cellRtcSetTime_t(pDateTime=0x%x, iTime=0x%llx)", pDateTime.addr(), iTime);
 
-	Memory.Write16(datetime_addr, datetime.year);
-	Memory.Write16(datetime_addr + 2, datetime.month);
-	Memory.Write16(datetime_addr + 4, datetime.day);
-	Memory.Write16(datetime_addr + 6, datetime.hour);
-	Memory.Write16(datetime_addr + 8, datetime.minute);
-	Memory.Write16(datetime_addr + 10, datetime.second);
-	Memory.Write32(datetime_addr + 12, datetime.microsecond);
+	rDateTime date_time = rDateTime((time_t)iTime);
+	
+	pDateTime->year = date_time.GetYear(rDateTime::TZ::UTC);
+	pDateTime->month = date_time.GetMonth(rDateTime::TZ::UTC);
+	pDateTime->day = date_time.GetDay(rDateTime::TZ::UTC);
+	pDateTime->hour = date_time.GetHour(rDateTime::TZ::UTC);
+	pDateTime->minute = date_time.GetMinute(rDateTime::TZ::UTC);
+	pDateTime->second = date_time.GetSecond(rDateTime::TZ::UTC);
+	pDateTime->microsecond = date_time.GetMillisecond(rDateTime::TZ::UTC) * 1000;
 
 	return CELL_OK;
 }
 
-int cellRtcSetWin32FileTime(u32 datetime_addr, u32 win32_time_addr)
+int cellRtcSetWin32FileTime(vm::ptr<CellRtcDateTime> pDateTime, u64 ulWin32FileTime)
 {
-	cellRtc.Log("cellRtcSetWin32FileTime(datetime_addr=0x%x, win32_time_addr=0x%x)", datetime_addr, win32_time_addr);
-	
-	wxDateTime date_time = wxDateTime::wxDateTime((time_t)Memory.Read64(win32_time_addr));
-	
-	CellRtcDateTime datetime;
-	datetime.year = date_time.GetYear(wxDateTime::TZ::UTC);
-	datetime.month = date_time.GetMonth(wxDateTime::TZ::UTC);
-	datetime.day = date_time.GetDay(wxDateTime::TZ::UTC);
-	datetime.hour = date_time.GetHour(wxDateTime::TZ::UTC);
-	datetime.minute = date_time.GetMinute(wxDateTime::TZ::UTC);
-	datetime.second = date_time.GetSecond(wxDateTime::TZ::UTC);
-	datetime.microsecond = date_time.GetMillisecond(wxDateTime::TZ::UTC) * 1000;
+	cellRtc->Log("cellRtcSetWin32FileTime(pDateTime=0x%x, ulWin32FileTime=0x%llx)", pDateTime, ulWin32FileTime);
 
-	Memory.Write16(datetime_addr, datetime.year);
-	Memory.Write16(datetime_addr + 2, datetime.month);
-	Memory.Write16(datetime_addr + 4, datetime.day);
-	Memory.Write16(datetime_addr + 6, datetime.hour);
-	Memory.Write16(datetime_addr + 8, datetime.minute);
-	Memory.Write16(datetime_addr + 10, datetime.second);
-	Memory.Write32(datetime_addr + 12, datetime.microsecond);
+	rDateTime date_time = rDateTime((time_t)ulWin32FileTime);
+	
+	pDateTime->year = date_time.GetYear(rDateTime::TZ::UTC);
+	pDateTime->month = date_time.GetMonth(rDateTime::TZ::UTC);
+	pDateTime->day = date_time.GetDay(rDateTime::TZ::UTC);
+	pDateTime->hour = date_time.GetHour(rDateTime::TZ::UTC);
+	pDateTime->minute = date_time.GetMinute(rDateTime::TZ::UTC);
+	pDateTime->second = date_time.GetSecond(rDateTime::TZ::UTC);
+	pDateTime->microsecond = date_time.GetMillisecond(rDateTime::TZ::UTC) * 1000;
 
 	return CELL_OK;
 }
 
-int cellRtcIsLeapYear(int year)
+int cellRtcIsLeapYear(s32 year)
 {
-	cellRtc.Log("cellRtcIsLeapYear(year=%d)", year);
+	cellRtc->Log("cellRtcIsLeapYear(year=%d)", year);
 
-	wxDateTime datetime;
-	return datetime.IsLeapYear(year, wxDateTime::Gregorian);
+	rDateTime datetime;
+	return datetime.IsLeapYear(year, rDateTime::Gregorian);
 }
 
-int cellRtcGetDaysInMonth(int year, int month)
+int cellRtcGetDaysInMonth(s32 year, s32 month)
 {
-	cellRtc.Log("cellRtcGetDaysInMonth(year=%d, month=%d)", year, month);
+	cellRtc->Log("cellRtcGetDaysInMonth(year=%d, month=%d)", year, month);
 
-	wxDateTime datetime;
-	return datetime.GetNumberOfDays((wxDateTime::Month) month, year, wxDateTime::Gregorian);
+	rDateTime datetime;
+	return datetime.GetNumberOfDays((rDateTime::Month) month, year, rDateTime::Gregorian);
 }
 
-int cellRtcGetDayOfWeek(int year, int month, int day)
+int cellRtcGetDayOfWeek(s32 year, s32 month, s32 day)
 {
-	cellRtc.Log("cellRtcGetDayOfWeek(year=%d, month=%d, day=%d)", year, month, day);
+	cellRtc->Log("cellRtcGetDayOfWeek(year=%d, month=%d, day=%d)", year, month, day);
 
-	wxDateTime datetime;
-	datetime.SetToWeekDay((wxDateTime::WeekDay) day, 1, (wxDateTime::Month) month, year);
+	rDateTime datetime;
+	datetime.SetToWeekDay((rDateTime::WeekDay) day, 1, (rDateTime::Month) month, year);
 	return datetime.GetWeekDay();
 }
 
-int cellRtcCheckValid(u32 datetime_addr)
+int cellRtcCheckValid(vm::ptr<CellRtcDateTime> pTime)
 {
-	cellRtc.Log("cellRtcCheckValid(datetime_addr=0x%x)", datetime_addr);
-	CellRtcDateTime datetime;
-	datetime.year = Memory.Read16(datetime_addr);
-	datetime.month = Memory.Read16(datetime_addr + 2);
-	datetime.day = Memory.Read16(datetime_addr + 4);
-	datetime.hour = Memory.Read16(datetime_addr + 6);
-	datetime.minute = Memory.Read16(datetime_addr + 8);
-	datetime.second = Memory.Read16(datetime_addr + 10);
-	datetime.microsecond = Memory.Read32(datetime_addr + 12);
-	
-	if((datetime.year < 1) || (datetime.year > 9999)) return CELL_RTC_ERROR_INVALID_YEAR;
-	else if((datetime.month < 1) || (datetime.month > 12)) return CELL_RTC_ERROR_INVALID_MONTH;
-	else if((datetime.day < 1) || (datetime.day > 31)) return CELL_RTC_ERROR_INVALID_DAY;
-	else if((datetime.hour < 0) || (datetime.hour > 23)) return CELL_RTC_ERROR_INVALID_HOUR;
-	else if((datetime.minute < 0) || (datetime.minute > 59)) return CELL_RTC_ERROR_INVALID_MINUTE;
-	else if((datetime.second < 0) || (datetime.second > 59)) return CELL_RTC_ERROR_INVALID_SECOND;
-	else if((datetime.microsecond < 0) || (datetime.microsecond > 999999)) return CELL_RTC_ERROR_INVALID_MICROSECOND;
+	cellRtc->Log("cellRtcCheckValid(pTime=0x%x)", pTime.addr());
+
+	if ((pTime->year < 1) || (pTime->year > 9999)) return CELL_RTC_ERROR_INVALID_YEAR;
+	else if ((pTime->month < 1) || (pTime->month > 12)) return CELL_RTC_ERROR_INVALID_MONTH;
+	else if ((pTime->day < 1) || (pTime->day > 31)) return CELL_RTC_ERROR_INVALID_DAY;
+	else if ((pTime->hour < 0) || (pTime->hour > 23)) return CELL_RTC_ERROR_INVALID_HOUR;
+	else if ((pTime->minute < 0) || (pTime->minute > 59)) return CELL_RTC_ERROR_INVALID_MINUTE;
+	else if ((pTime->second < 0) || (pTime->second > 59)) return CELL_RTC_ERROR_INVALID_SECOND;
+	else if ((pTime->microsecond < 0) || (pTime->microsecond > 999999)) return CELL_RTC_ERROR_INVALID_MICROSECOND;
 	else return CELL_OK;
 }
 
-int cellRtcCompareTick(u32 tick_addr_1, u32 tick_addr_2)
+int cellRtcCompareTick(vm::ptr<CellRtcTick> pTick0, vm::ptr<CellRtcTick> pTick1)
 {
-	cellRtc.Log("cellRtcCompareTick(tick_addr_1=0x%x, tick_addr_2=0x%x)", tick_addr_1, tick_addr_2);
-	u64 tick1 = Memory.Read64(tick_addr_1);
-	u64 tick2 = Memory.Read64(tick_addr_2);
+	cellRtc->Log("cellRtcCompareTick(pTick0=0x%x, pTick1=0x%x)", pTick0.addr(), pTick1.addr());
 
-	if(tick1 < tick2) return -1;
-	else if(tick1 > tick2) return 1;
+	if (pTick0->tick < pTick1->tick) return -1;
+	else if (pTick0->tick > pTick1->tick) return 1;
 	else return CELL_OK;
 }
 
-void cellRtc_init()
+void cellRtc_init(Module *pxThis)
 {
-	cellRtc.AddFunc(0x9dafc0d9, cellRtcGetCurrentTick);
-	cellRtc.AddFunc(0x32c941cf, cellRtcGetCurrentClock);
-	cellRtc.AddFunc(0x2cce9cf5, cellRtcGetCurrentClockLocalTime);
+	cellRtc = pxThis;
 
-	cellRtc.AddFunc(0x5491b9d5, cellRtcFormatRfc2822);
-	cellRtc.AddFunc(0xa07c3d2f, cellRtcFormatRfc2822LocalTime);
-	cellRtc.AddFunc(0xd9c0b463, cellRtcFormatRfc3339);
-	cellRtc.AddFunc(0x1324948a, cellRtcFormatRfc3339LocalTime);
-	cellRtc.AddFunc(0xc5bc0fac, cellRtcParseDateTime);
-	cellRtc.AddFunc(0xcf11c3d6, cellRtcParseRfc3339);
+	cellRtc->AddFunc(0x9dafc0d9, cellRtcGetCurrentTick);
+	cellRtc->AddFunc(0x32c941cf, cellRtcGetCurrentClock);
+	cellRtc->AddFunc(0x2cce9cf5, cellRtcGetCurrentClockLocalTime);
 
-	cellRtc.AddFunc(0xc7bdb7eb, cellRtcGetTick);
-	cellRtc.AddFunc(0x99b13034, cellRtcSetTick);
-	cellRtc.AddFunc(0x269a1882, cellRtcTickAddTicks);
-	cellRtc.AddFunc(0xf8509925, cellRtcTickAddMicroseconds);
-	cellRtc.AddFunc(0xccce71bd, cellRtcTickAddSeconds);
-	cellRtc.AddFunc(0x2f010bfa, cellRtcTickAddMinutes);
-	cellRtc.AddFunc(0xd41d3bd2, cellRtcTickAddHours);
-	cellRtc.AddFunc(0x75744e2a, cellRtcTickAddDays);
-	cellRtc.AddFunc(0x64c63fd5, cellRtcTickAddWeeks);
-	cellRtc.AddFunc(0xe0ecbb45, cellRtcTickAddMonths);
-	cellRtc.AddFunc(0x332a74dd, cellRtcTickAddYears);
-	cellRtc.AddFunc(0xc48d5002, cellRtcConvertUtcToLocalTime);
-	cellRtc.AddFunc(0x46ca7fe0, cellRtcConvertLocalTimeToUtc);
+	cellRtc->AddFunc(0x5491b9d5, cellRtcFormatRfc2822);
+	cellRtc->AddFunc(0xa07c3d2f, cellRtcFormatRfc2822LocalTime);
+	cellRtc->AddFunc(0xd9c0b463, cellRtcFormatRfc3339);
+	cellRtc->AddFunc(0x1324948a, cellRtcFormatRfc3339LocalTime);
+	cellRtc->AddFunc(0xc5bc0fac, cellRtcParseDateTime);
+	cellRtc->AddFunc(0xcf11c3d6, cellRtcParseRfc3339);
+
+	cellRtc->AddFunc(0xc7bdb7eb, cellRtcGetTick);
+	cellRtc->AddFunc(0x99b13034, cellRtcSetTick);
+	cellRtc->AddFunc(0x269a1882, cellRtcTickAddTicks);
+	cellRtc->AddFunc(0xf8509925, cellRtcTickAddMicroseconds);
+	cellRtc->AddFunc(0xccce71bd, cellRtcTickAddSeconds);
+	cellRtc->AddFunc(0x2f010bfa, cellRtcTickAddMinutes);
+	cellRtc->AddFunc(0xd41d3bd2, cellRtcTickAddHours);
+	cellRtc->AddFunc(0x75744e2a, cellRtcTickAddDays);
+	cellRtc->AddFunc(0x64c63fd5, cellRtcTickAddWeeks);
+	cellRtc->AddFunc(0xe0ecbb45, cellRtcTickAddMonths);
+	cellRtc->AddFunc(0x332a74dd, cellRtcTickAddYears);
+	cellRtc->AddFunc(0xc48d5002, cellRtcConvertUtcToLocalTime);
+	cellRtc->AddFunc(0x46ca7fe0, cellRtcConvertLocalTimeToUtc);
 
 	// (TODO: Time Information Manipulation Functions missing)
 
-	cellRtc.AddFunc(0xdfff32cf, cellRtcGetDosTime);
-	cellRtc.AddFunc(0xcb90c761, cellRtcGetTime_t);
-	cellRtc.AddFunc(0xe7086f05, cellRtcGetWin32FileTime);
-	cellRtc.AddFunc(0x9598d4b3, cellRtcSetDosTime);
-	cellRtc.AddFunc(0xbb543189, cellRtcSetTime_t);
-	cellRtc.AddFunc(0x5f68c268, cellRtcSetWin32FileTime);
+	cellRtc->AddFunc(0xdfff32cf, cellRtcGetDosTime);
+	cellRtc->AddFunc(0xcb90c761, cellRtcGetTime_t);
+	cellRtc->AddFunc(0xe7086f05, cellRtcGetWin32FileTime);
+	cellRtc->AddFunc(0x9598d4b3, cellRtcSetDosTime);
+	cellRtc->AddFunc(0xbb543189, cellRtcSetTime_t);
+	cellRtc->AddFunc(0x5f68c268, cellRtcSetWin32FileTime);
 
-	cellRtc.AddFunc(0x5316b4a8, cellRtcIsLeapYear);
-	cellRtc.AddFunc(0x5b6a0a1d, cellRtcGetDaysInMonth);
-	cellRtc.AddFunc(0xc2d8cf95, cellRtcGetDayOfWeek);
-	cellRtc.AddFunc(0x7f1086e6, cellRtcCheckValid);
+	cellRtc->AddFunc(0x5316b4a8, cellRtcIsLeapYear);
+	cellRtc->AddFunc(0x5b6a0a1d, cellRtcGetDaysInMonth);
+	cellRtc->AddFunc(0xc2d8cf95, cellRtcGetDayOfWeek);
+	cellRtc->AddFunc(0x7f1086e6, cellRtcCheckValid);
 
-	cellRtc.AddFunc(0xfb51fc61, cellRtcCompareTick);
+	cellRtc->AddFunc(0xfb51fc61, cellRtcCompareTick);
 }

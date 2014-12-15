@@ -1,5 +1,9 @@
 #pragma once
-#include "Emu/FS/vfsFileBase.h"
+#include "Emu/Memory/vm.h"
+
+struct vfsFileBase;
+struct vfsStream;
+class rFile;
 
 #ifdef _DEBUG	
 	//#define LOADER_DEBUG
@@ -11,7 +15,7 @@ enum Elf_Machine
 	MACHINE_MIPS = 0x08,
 	MACHINE_PPC64 = 0x15,
 	MACHINE_SPU = 0x17,
-	MACHINE_ARM = 0x28,
+	MACHINE_ARM = 0x28
 };
 
 enum ShdrType
@@ -27,195 +31,153 @@ enum ShdrType
 	SHT_NOBITS,
 	SHT_REL,
 	SHT_SHLIB,
-	SHT_DYNSYM,
+	SHT_DYNSYM
 };
 
 enum ShdrFlag
 {
-	SHF_WRITE		= 0x1,
-	SHF_ALLOC		= 0x2,
-	SHF_EXECINSTR	= 0x4,
-	SHF_MASKPROC	= 0xf0000000,
+	SHF_WRITE     = 0x1,
+	SHF_ALLOC     = 0x2,
+	SHF_EXECINSTR = 0x4,
+	SHF_MASKPROC  = 0xf0000000
 };
 
-__forceinline static u8 Read8(vfsStream& f)
-{
-	u8 ret;
-	f.Read(&ret, sizeof(u8));
-	return ret;
-}
-
-__forceinline static u16 Read16(vfsStream& f)
-{
-	return ((u16)Read8(f) << 8) | (u16)Read8(f);
-}
-
-__forceinline static u32 Read32(vfsStream& f)
-{
-	return (Read16(f) << 16) | Read16(f);
-}
-
-__forceinline static u64 Read64(vfsStream& f)
-{
-	return ((u64)Read32(f) << 32) | (u64)Read32(f);
-}
-
-__forceinline static u16 Read16LE(vfsStream& f)
-{
-	return ((u16)Read8(f) | ((u16)Read8(f) << 8));
-}
-
-__forceinline static u32 Read32LE(vfsStream& f)
-{
-	return  Read16LE(f) | (Read16LE(f) << 16);
-}
-
-__forceinline static u64 Read64LE(vfsStream& f)
-{
-	return ((u64)Read32LE(f) | (u64)Read32LE(f) << 32);
-}
-
-__forceinline static void Write8(wxFile& f, const u8 data)
-{
-	f.Write(&data, 1);
-}
-
-__forceinline static void Write16(wxFile& f, const u16 data)
-{
-	Write8(f, data >> 8);
-	Write8(f, data);
-}
-
-__forceinline static void Write32(wxFile& f, const u32 data)
-{
-	Write16(f, data >> 16);
-	Write16(f, data);
-}
-
-__forceinline static void Write64(wxFile& f, const u64 data)
-{
-	Write32(f, data >> 32);
-	Write32(f, data);
-}
-
-__forceinline static void Write16LE(wxFile& f, const u16 data)
-{
-	Write8(f, data);
-	Write8(f, data >> 8);
-}
-
-__forceinline static void Write32LE(wxFile& f, const u32 data)
-{
-	Write16LE(f, data);
-	Write16LE(f, data >> 16);
-}
-
-__forceinline static void Write64LE(wxFile& f, const u64 data)
-{
-	Write32LE(f, data);
-	Write32LE(f, data >> 32);
-}
-
-const wxString Ehdr_DataToString(const u8 data);
-const wxString Ehdr_TypeToString(const u16 type);
-const wxString Ehdr_OS_ABIToString(const u8 os_abi);
-const wxString Ehdr_MachineToString(const u16 machine);
-const wxString Phdr_FlagsToString(u32 flags);
-const wxString Phdr_TypeToString(const u32 type);
+const std::string Ehdr_DataToString(const u8 data);
+const std::string Ehdr_TypeToString(const u16 type);
+const std::string Ehdr_OS_ABIToString(const u8 os_abi);
+const std::string Ehdr_MachineToString(const u16 machine);
+const std::string Phdr_FlagsToString(u32 flags);
+const std::string Phdr_TypeToString(const u32 type);
 
 struct sys_process_param_info
 {
-	u32 sdk_version;
-	s32 primary_prio;
-	u32 primary_stacksize;
-	u32 malloc_pagesize;
-	u32 ppc_seg;
-	//u32 crash_dump_param_addr;
+	be_t<u32> sdk_version;
+	be_t<s32> primary_prio;
+	be_t<u32> primary_stacksize;
+	be_t<u32> malloc_pagesize;
+	be_t<u32> ppc_seg;
+	//be_t<u32> crash_dump_param_addr;
 };
 
 struct sys_process_param
 {
-	u32 size;
-	u32 magic;
-	u32 version;
+	be_t<u32> size;
+	be_t<u32> magic;
+	be_t<u32> version;
 	sys_process_param_info info;
+};
+
+struct sys_stub
+{
+	u8 s_size; // = 0x2c
+	u8 s_unk0;
+	be_t<u16> s_version; // = 0x1
+	be_t<u16> s_unk1; // = 0x9 // flags?
+	be_t<u16> s_imports;
+	be_t<u32> s_unk2; // = 0x0
+	be_t<u32> s_unk3; // = 0x0
+	vm::bptr<const char> s_modulename;
+	vm::bptr<u32> s_nid;
+	vm::bptr<u32> s_text;
+	be_t<u32> s_unk4; // = 0x0
+	be_t<u32> s_unk5; // = 0x0
+	be_t<u32> s_unk6; // = 0x0
+	be_t<u32> s_unk7; // = 0x0
 };
 
 struct sys_proc_prx_param
 {
-	u32 size;
-	u32 magic;
-	u32 version;
-	u32 pad0;
-	u32 libentstart;
-	u32 libentend;
-	u32 libstubstart;
-	u32 libstubend;
-	u16 ver;
-	u16 pad1;
-	u32 pad2;
+	be_t<u32> size;
+	be_t<u32> magic;
+	be_t<u32> version;
+	be_t<u32> pad0;
+	be_t<u32> libentstart;
+	be_t<u32> libentend;
+	vm::bptr<sys_stub> libstubstart;
+	vm::bptr<sys_stub> libstubend;
+	be_t<u16> ver;
+	be_t<u16> pad1;
+	be_t<u32> pad2;
 };
 
-struct Elf64_StubHeader
+namespace loader
 {
-	u8 s_size; // = 0x2c
-	u8 s_unk0;
-	u16 s_version; // = 0x1
-	u16 s_unk1; // = 0x9 // flags?
-	u16 s_imports;
-	u32 s_unk2; // = 0x0
-	u32 s_unk3; // = 0x0
-	u32 s_modulename;
-	u32 s_nid;
-	u32 s_text;
-	u32 s_unk4; // = 0x0
-	u32 s_unk5; // = 0x0
-	u32 s_unk6; // = 0x0
-	u32 s_unk7; // = 0x0
-};
-
-class LoaderBase
-{
-protected:
-	u32 entry;
-	u32 min_addr;
-	u32 max_addr;
-	Elf_Machine machine;
-
-	LoaderBase()
-		: machine(MACHINE_Unknown)
-		, entry(0)
-		, min_addr(0)
-		, max_addr(0)
+	class handler
 	{
-	}
+		u64 m_stream_offset;
 
-public:
-	virtual bool LoadInfo() { return false; }
-	virtual bool LoadData(u64 offset = 0) { return false; }
-	Elf_Machine GetMachine() { return machine; }
+	protected:
+		vfsStream* m_stream;
 
-	u32 GetEntry() { return entry; }
-	u32 GetMinAddr() { return min_addr; }
-	u32 GetMaxAddr() { return max_addr; }
-};
+	public:
+		enum error_code
+		{
+			bad_version = -1,
+			bad_file = -2,
+			broken_file = -3,
+			loading_error = -4,
+			bad_relocation_type = -5,
+			ok = 0
+		};
 
-class Loader : public LoaderBase
-{
-	vfsFileBase* m_stream;
-	LoaderBase* m_loader;
+		virtual ~handler() = default;
 
-public:
-	Loader();
-	Loader(vfsFileBase& stream);
-	~Loader();
+		virtual error_code init(vfsStream& stream);
+		virtual error_code load() = 0;
+		u64 get_stream_offset() const
+		{
+			return m_stream_offset;
+		}
 
-	void Open(const wxString& path);
-	void Open(vfsFileBase& stream);
-	bool Analyze();
+		void set_status(const error_code& code)
+		{
+			m_status = code;
+		}
 
-	bool Load();
+		error_code get_status() const
+		{
+			return m_status;
+		}
 
-private:
-	LoaderBase* SearchLoader();
-};
+		const std::string get_error_code() const
+		{
+			switch (m_status)
+			{
+			case bad_version: return "Bad version";
+			case bad_file: return "Bad file";
+			case broken_file: return "Broken file";
+			case loading_error: return "Loading error";
+			case bad_relocation_type: return "Bad relocation type";
+			case ok: return "Ok";
+
+			default: return "Unknown error code";
+			}
+		}
+
+	protected:
+		error_code m_status;
+	};
+
+	class loader
+	{
+		std::vector<handler*> m_handlers;
+
+	public:
+		~loader()
+		{
+			for (auto &h : m_handlers)
+			{
+				delete h;
+			}
+		}
+
+		void register_handler(handler* handler)
+		{
+			m_handlers.push_back(handler);
+		}
+
+		bool load(vfsStream& stream);
+	};
+
+	using namespace vm;
+}

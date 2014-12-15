@@ -1,5 +1,7 @@
 #pragma once
 
+class vfsDevice;
+
 enum DirEntryFlags
 {
 	DirEntry_TypeDir = 0x1,
@@ -12,7 +14,7 @@ enum DirEntryFlags
 
 struct DirEntryInfo
 {
-	wxString name;
+	std::string name;
 	u32 flags;
 	time_t create_time;
 	time_t access_time;
@@ -30,8 +32,8 @@ struct DirEntryInfo
 class vfsDirBase
 {
 protected:
-	wxString m_cwd;
-	Array<DirEntryInfo> m_entries;
+	std::string m_cwd;
+	std::vector<DirEntryInfo> m_entries;
 	uint m_pos;
 	vfsDevice* m_device;
 
@@ -39,16 +41,69 @@ public:
 	vfsDirBase(vfsDevice* device);
 	virtual ~vfsDirBase();
 
-	virtual bool Open(const wxString& path);
+	virtual bool Open(const std::string& path);
 	virtual bool IsOpened() const;
-	virtual bool IsExists(const wxString& path) const;
-	virtual const Array<DirEntryInfo>& GetEntries() const;
+	virtual bool IsExists(const std::string& path) const;
+	virtual const std::vector<DirEntryInfo>& GetEntries() const;
 	virtual void Close();
-	virtual wxString GetPath() const;
+	virtual std::string GetPath() const;
 
-	virtual bool Create(const wxString& path)=0;
+	virtual bool Create(const std::string& path) = 0;
 	//virtual bool Create(const DirEntryInfo& info)=0;
-	virtual bool Rename(const wxString& from, const wxString& to)=0;
-	virtual bool Remove(const wxString& path)=0;
+	virtual bool Rename(const std::string& from, const std::string& to) = 0;
+	virtual bool Remove(const std::string& path) = 0;
 	virtual const DirEntryInfo* Read();
+	virtual const DirEntryInfo* First();
+
+	class iterator
+	{
+		vfsDirBase *parent;
+		const DirEntryInfo* data;
+
+	public:
+		iterator(vfsDirBase* parent)
+			: parent(parent)
+			, data(parent->First())
+		{
+		}
+
+		iterator(const DirEntryInfo* data)
+			: parent(parent)
+			, data(data)
+		{
+		}
+
+		iterator& operator++()
+		{
+			data = parent->Read();
+			return *this;
+		}
+
+		iterator operator++(int)
+		{
+			const DirEntryInfo* olddata = data;
+			data = parent->Read();
+			return iterator(olddata);
+		}
+
+		const DirEntryInfo* operator *()
+		{
+			return data;
+		}
+
+		bool operator!=(iterator other) const
+		{
+			return data != other.data;
+		}
+	};
+
+	iterator begin()
+	{
+		return iterator(this);
+	}
+
+	iterator end()
+	{
+		return iterator((const DirEntryInfo*)nullptr);
+	}
 };

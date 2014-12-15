@@ -1,16 +1,71 @@
 #include "stdafx.h"
+#include "Emu/System.h"
+#include "Log.h"
 #include "Thread.h"
 
 #ifdef _WIN32
-__declspec(thread)
-#else
-thread_local
+#include <windows.h>
 #endif
-NamedThreadBase* g_tls_this_thread = nullptr;
+
+void SetCurrentThreadDebugName(const char* threadName)
+{
+#ifdef _WIN32 // this is VS-specific way to set thread names for the debugger
+	#pragma pack(push,8)
+	struct THREADNAME_INFO
+	{
+		DWORD dwType;
+		LPCSTR szName;
+		DWORD dwThreadID;
+		DWORD dwFlags;
+	} info;
+	#pragma pack(pop)
+
+	info.dwType = 0x1000;
+	info.szName = threadName;
+	info.dwThreadID = -1;
+	info.dwFlags = 0;
+
+	__try
+	{
+		RaiseException(0x406D1388, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR*)&info);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+	}
+#endif
+}
+
+thread_local NamedThreadBase* g_tls_this_thread = nullptr;
+std::atomic<u32> g_thread_count(0);
 
 NamedThreadBase* GetCurrentNamedThread()
 {
 	return g_tls_this_thread;
+}
+
+void SetCurrentNamedThread(NamedThreadBase* value)
+{
+	auto old_value = g_tls_this_thread;
+
+	if (old_value == value)
+	{
+		return;
+	}
+
+	if (value && value->m_tls_assigned.exchange(true))
+	{
+		LOG_ERROR(GENERAL, "Thread '%s' was already assigned to g_tls_this_thread of another thread", value->GetThreadName().c_str());
+		g_tls_this_thread = nullptr;
+	}
+	else
+	{
+		g_tls_this_thread = value;
+	}
+
+	if (old_value)
+	{
+		old_value->m_tls_assigned = false;
+	}
 }
 
 std::string NamedThreadBase::GetThreadName() const
@@ -21,6 +76,17 @@ std::string NamedThreadBase::GetThreadName() const
 void NamedThreadBase::SetThreadName(const std::string& name)
 {
 	m_name = name;
+}
+
+void NamedThreadBase::WaitForAnySignal(u64 time) // wait for Notify() signal or sleep
+{
+	std::unique_lock<std::mutex> lock(m_signal_mtx);
+	m_signal_cv.wait_for(lock, std::chrono::milliseconds(time));
+}
+
+void NamedThreadBase::Notify() // wake up waiting thread or nothing
+{
+	m_signal_cv.notify_one();
 }
 
 ThreadBase::ThreadBase(const std::string& name)
@@ -35,6 +101,9 @@ ThreadBase::~ThreadBase()
 {
 	if(IsAlive())
 		Stop(false);
+
+	delete m_executor;
+	m_executor = nullptr;
 }
 
 void ThreadBase::Start()
@@ -46,15 +115,30 @@ void ThreadBase::Start()
 	m_destroy = false;
 	m_alive = true;
 
-	m_executor = new std::thread(
-		[this]()
+	m_executor = new std::thread([this]()
+	{
+		SetCurrentThreadDebugName(GetThreadName().c_str());
+
+		SetCurrentNamedThread(this);
+		g_thread_count++;
+
+		try
 		{
-			g_tls_this_thread = this;
-
 			Task();
+		}
+		catch (const char* e)
+		{
+			LOG_ERROR(GENERAL, "%s: %s", GetThreadName().c_str(), e);
+		}
+		catch (const std::string& e)
+		{
+			LOG_ERROR(GENERAL, "%s: %s", GetThreadName().c_str(), e.c_str());
+		}
 
-			m_alive = false;
-		});
+		m_alive = false;
+		SetCurrentNamedThread(nullptr);
+		g_thread_count--;
+	});
 }
 
 void ThreadBase::Stop(bool wait, bool send_destroy)
@@ -122,18 +206,27 @@ void thread::start(std::function<void()> func)
 
 	m_thr = std::thread([func, name]()
 	{
+		SetCurrentThreadDebugName(name.c_str());
+
 		NamedThreadBase info(name);
-		g_tls_this_thread = &info;
+		SetCurrentNamedThread(&info);
+		g_thread_count++;
 
 		try
 		{
 			func();
 		}
-		catch(...)
+		catch (const char* e)
 		{
-			ConLog.Error("Crash :(");
-			//std::terminate();
+			LOG_ERROR(GENERAL, "%s: %s", name.c_str(), e);
 		}
+		catch (const std::string& e)
+		{
+			LOG_ERROR(GENERAL, "%s: %s", name.c_str(), e.c_str());
+		}
+
+		SetCurrentNamedThread(nullptr);
+		g_thread_count--;
 	});
 }
 
@@ -150,4 +243,62 @@ void thread::join()
 bool thread::joinable() const
 {
 	return m_thr.joinable();
+}
+
+bool waiter_map_t::is_stopped(u64 signal_id)
+{
+	if (Emu.IsStopped())
+	{
+		LOG_WARNING(Log::HLE, "%s.waiter_op() aborted (signal_id=0x%llx)", m_name.c_str(), signal_id);
+		return true;
+	}
+	return false;
+}
+
+void waiter_map_t::waiter_reg_t::init()
+{
+	if (thread) return;
+
+	thread = GetCurrentNamedThread();
+
+	std::lock_guard<std::mutex> lock(map.m_mutex);
+
+	// add waiter
+	map.m_waiters.push_back({ signal_id, thread });
+}
+
+waiter_map_t::waiter_reg_t::~waiter_reg_t()
+{
+	if (!thread) return;
+
+	std::lock_guard<std::mutex> lock(map.m_mutex);
+
+	// remove waiter
+	for (s64 i = map.m_waiters.size() - 1; i >= 0; i--)
+	{
+		if (map.m_waiters[i].signal_id == signal_id && map.m_waiters[i].thread == thread)
+		{
+			map.m_waiters.erase(map.m_waiters.begin() + i);
+			return;
+		}
+	}
+
+	LOG_ERROR(HLE, "%s(): waiter not found (signal_id=0x%llx, map='%s')", __FUNCTION__, signal_id, map.m_name.c_str());
+	Emu.Pause();
+}
+
+void waiter_map_t::notify(u64 signal_id)
+{
+	if (!m_waiters.size()) return;
+
+	std::lock_guard<std::mutex> lock(m_mutex);
+
+	// find waiter and signal
+	for (auto& v : m_waiters)
+	{
+		if (v.signal_id == signal_id)
+		{
+			v.thread->Notify();
+		}
+	}
 }

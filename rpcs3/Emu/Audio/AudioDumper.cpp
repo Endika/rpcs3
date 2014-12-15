@@ -11,9 +11,7 @@ AudioDumper::~AudioDumper()
 
 bool AudioDumper::Init()
 {
-	if(m_output.Open("audio.wav", wxFile::write))
-		return true;
-	return false;
+	return m_output.Open("audio.wav", rFile::write);
 }
 
 void AudioDumper::WriteHeader()
@@ -23,16 +21,22 @@ void AudioDumper::WriteHeader()
 
 size_t AudioDumper::WriteData(const void* buffer, size_t size)
 {
+#ifdef SKIP_EMPTY_AUDIO
+	bool do_save = false;
+	for (u32 i = 0; i < size / 8; i++)
+	{
+		if (((u64*)buffer)[i]) do_save = true;
+	}
+	for (u32 i = 0; i < size % 8; i++)
+	{
+		if (((u8*)buffer)[i + (size & ~7)]) do_save = true;
+	}
+	if (!do_save) return size; // ignore empty data
+#endif
 	size_t ret = m_output.Write(buffer, size);
-	
-
+	m_header.Size += (u32)ret;
+	m_header.RIFF.Size += (u32)ret;
 	return ret;
-}
-
-void AudioDumper::UpdateHeader(size_t size)
-{
-	m_header.Size += size;
-	m_header.RIFF.Size += size;
 }
 
 void AudioDumper::Finalize()

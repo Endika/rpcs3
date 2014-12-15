@@ -1,3 +1,5 @@
+#pragma once
+
 class AboutDialog
 	: public wxDialog
 {
@@ -45,8 +47,8 @@ AboutDialog::AboutDialog(wxWindow *parent)
 
 	//Credits
 	wxBoxSizer* s_panel_credits(new wxBoxSizer(wxHORIZONTAL));
-	wxStaticText* t_section1 = new wxStaticText(this, wxID_ANY, "\nDevelopers:\n\nDH\nAlexAltea\nHykem\nOil", wxDefaultPosition, wxSize(156,160));
-	wxStaticText* t_section2 = new wxStaticText(this, wxID_ANY, "\nThanks:\n\nBlackDaemon", wxDefaultPosition, wxSize(156,160));
+	wxStaticText* t_section1 = new wxStaticText(this, wxID_ANY, "\nDevelopers:\n\nDH\nAlexAltea\nHykem\nOil\nNekotekina\nelisha464\nBigpet", wxDefaultPosition, wxSize(156,160));
+	wxStaticText* t_section2 = new wxStaticText(this, wxID_ANY, "\nThanks:\n\nBlackDaemon\nAishou\nkrofna\nxsacha", wxDefaultPosition, wxSize(156,160));
 
 	s_panel_credits->AddSpacer(12);
 	s_panel_credits->Add(t_section1);
@@ -61,7 +63,6 @@ AboutDialog::AboutDialog(wxWindow *parent)
 	wxButton* b_forum = new wxButton(this, b_id_forum, "Forum");
 	Connect(b_id_website, wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(AboutDialog::OpenWebsite));
 	Connect(b_id_forum, wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(AboutDialog::OpenForum));
-	b_website->Disable();
 
 	s_panel_buttons->AddSpacer(12);
 	s_panel_buttons->Add(new wxButton(this, wxID_OK), wxLEFT, 0, 5);
@@ -82,10 +83,10 @@ AboutDialog::AboutDialog(wxWindow *parent)
 
 void AboutDialog::OpenWebsite(wxCommandEvent& WXUNUSED(event))
 {
-	wxLaunchDefaultBrowser("http://www.emunewz.net/forum/forumdisplay.php?fid=162");
+	wxLaunchDefaultBrowser("http://rpcs3.net/");
 }
 
 void AboutDialog::OpenForum(wxCommandEvent& WXUNUSED(event))
 {
-	wxLaunchDefaultBrowser("http://www.emunewz.net/forum/forumdisplay.php?fid=162");
+	wxLaunchDefaultBrowser("http://forum.rpcs3.net/");
 }

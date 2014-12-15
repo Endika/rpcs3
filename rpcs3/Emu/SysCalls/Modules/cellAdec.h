@@ -5,11 +5,11 @@
 // Error Codes
 enum
 {
-	CELL_ADEC_ERROR_FATAL	= 0x80610001,
-	CELL_ADEC_ERROR_SEQ		= 0x80610002,
-	CELL_ADEC_ERROR_ARG		= 0x80610003,
-	CELL_ADEC_ERROR_BUSY	= 0x80610004,
-	CELL_ADEC_ERROR_EMPTY	= 0x80610005,
+	CELL_ADEC_ERROR_FATAL   = 0x80610001,
+	CELL_ADEC_ERROR_SEQ     = 0x80610002,
+	CELL_ADEC_ERROR_ARG     = 0x80610003,
+	CELL_ADEC_ERROR_BUSY    = 0x80610004,
+	CELL_ADEC_ERROR_EMPTY   = 0x80610005,
 
 	CELL_ADEC_ERROR_CELP_BUSY         = 0x80612e01,
 	CELL_ADEC_ERROR_CELP_EMPTY        = 0x80612e02,
@@ -27,77 +27,75 @@ enum
 	CELL_ADEC_ERROR_CELP8_CORE_ARG     = 0x80612eb2,
 	CELL_ADEC_ERROR_CELP8_CORE_SEQ     = 0x80612eb3,
 
-	CELL_ADEC_ERROR_M4AAC_FATAL								= 0x80612401,
-	CELL_ADEC_ERROR_M4AAC_SEQ								= 0x80612402,
-	CELL_ADEC_ERROR_M4AAC_ARG								= 0x80612403,
-	CELL_ADEC_ERROR_M4AAC_BUSY								= 0x80612404,
-	CELL_ADEC_ERROR_M4AAC_EMPTY								= 0x80612405,
-	CELL_ADEC_ERROR_M4AAC_BUFFER_OVERFLOW					= 0x80612406,
-	CELL_ADEC_ERROR_M4AAC_END_OF_BITSTREAM					= 0x80612407,
+	CELL_ADEC_ERROR_M4AAC_FATAL                                   = 0x80612401,
+	CELL_ADEC_ERROR_M4AAC_SEQ                                     = 0x80612402,
+	CELL_ADEC_ERROR_M4AAC_ARG                                     = 0x80612403,
+	CELL_ADEC_ERROR_M4AAC_BUSY                                    = 0x80612404,
+	CELL_ADEC_ERROR_M4AAC_EMPTY                                   = 0x80612405,
+	CELL_ADEC_ERROR_M4AAC_BUFFER_OVERFLOW                         = 0x80612406,
+	CELL_ADEC_ERROR_M4AAC_END_OF_BITSTREAM                        = 0x80612407,
 
 	/* Core */
-	CELL_ADEC_ERROR_M4AAC_CH_CONFIG_INCONSISTENCY			= 0x80612410,
-	CELL_ADEC_ERROR_M4AAC_NO_CH_DEFAULT_POS					= 0x80612411,
-	CELL_ADEC_ERROR_M4AAC_INVALID_CH_POS					= 0x80612412,
-	CELL_ADEC_ERROR_M4AAC_UNANTICIPATED_COUPLING_CH			= 0x80612413,
-	CELL_ADEC_ERROR_M4AAC_INVALID_LAYER_ID					= 0x80612414,
-	CELL_ADEC_ERROR_M4AAC_ADTS_SYNCWORD_ERROR				= 0x80612415,
-	CELL_ADEC_ERROR_M4AAC_INVALID_ADTS_ID					= 0x80612416,
-	CELL_ADEC_ERROR_M4AAC_CH_CHANGED						= 0x80612417,
-	CELL_ADEC_ERROR_M4AAC_SAMPLING_FREQ_CHANGED				= 0x80612418,
-	CELL_ADEC_ERROR_M4AAC_WRONG_SBR_CH						= 0x80612419,
-	CELL_ADEC_ERROR_M4AAC_WRONG_SCALE_FACTOR				= 0x8061241a,
-	CELL_ADEC_ERROR_M4AAC_INVALID_BOOKS						= 0x8061241b,
-	CELL_ADEC_ERROR_M4AAC_INVALID_SECTION_DATA				= 0x8061241c,
-	CELL_ADEC_ERROR_M4AAC_PULSE_IS_NOT_LONG					= 0x8061241d,
-	CELL_ADEC_ERROR_M4AAC_GC_IS_NOT_SUPPORTED				= 0x8061241e,
-	CELL_ADEC_ERROR_M4AAC_INVALID_ELEMENT_ID				= 0x8061241f,
-	CELL_ADEC_ERROR_M4AAC_NO_CH_CONFIG						= 0x80612420,
-	CELL_ADEC_ERROR_M4AAC_UNEXPECTED_OVERLAP_CRC			= 0x80612421,
-	CELL_ADEC_ERROR_M4AAC_CRC_BUFFER_EXCEEDED				= 0x80612422,
-	CELL_ADEC_ERROR_M4AAC_INVALID_CRC						= 0x80612423,
-	CELL_ADEC_ERROR_M4AAC_BAD_WINDOW_CODE					= 0x80612424,
-	CELL_ADEC_ERROR_M4AAC_INVALID_ADIF_HEADER_ID			= 0x80612425,
-	CELL_ADEC_ERROR_M4AAC_NOT_SUPPORTED_PROFILE				= 0x80612426,
-	CELL_ADEC_ERROR_M4AAC_PROG_NUMBER_NOT_FOUND				= 0x80612427,
-	CELL_ADEC_ERROR_M4AAC_INVALID_SAMP_RATE_INDEX			= 0x80612428,
-	CELL_ADEC_ERROR_M4AAC_UNANTICIPATED_CH_CONFIG			= 0x80612429,
-	CELL_ADEC_ERROR_M4AAC_PULSE_OVERFLOWED					= 0x8061242a,
-	CELL_ADEC_ERROR_M4AAC_CAN_NOT_UNPACK_INDEX				= 0x8061242b,
-	CELL_ADEC_ERROR_M4AAC_DEINTERLEAVE_FAILED				= 0x8061242c,
-	CELL_ADEC_ERROR_M4AAC_CALC_BAND_OFFSET_FAILED			= 0x8061242d,
-	CELL_ADEC_ERROR_M4AAC_GET_SCALE_FACTOR_FAILED			= 0x8061242e,
-	CELL_ADEC_ERROR_M4AAC_GET_CC_GAIN_FAILED				= 0x8061242f,
-	CELL_ADEC_ERROR_M4AAC_MIX_COUPLING_CH_FAILED			= 0x80612430,
-	CELL_ADEC_ERROR_M4AAC_GROUP_IS_INVALID					= 0x80612431,
-	CELL_ADEC_ERROR_M4AAC_PREDICT_FAILED					= 0x80612432,
-	CELL_ADEC_ERROR_M4AAC_INVALID_PREDICT_RESET_PATTERN		= 0x80612433,
-	CELL_ADEC_ERROR_M4AAC_INVALID_TNS_FRAME_INFO			= 0x80612434,
-	CELL_ADEC_ERROR_M4AAC_GET_MASK_FAILED					= 0x80612435,
-	CELL_ADEC_ERROR_M4AAC_GET_GROUP_FAILED					= 0x80612436,
-	CELL_ADEC_ERROR_M4AAC_GET_LPFLAG_FAILED					= 0x80612437,
-	CELL_ADEC_ERROR_M4AAC_INVERSE_QUANTIZATION_FAILED		= 0x80612438,
-	CELL_ADEC_ERROR_M4AAC_GET_CB_MAP_FAILED					= 0x80612439,
-	CELL_ADEC_ERROR_M4AAC_GET_PULSE_FAILED					= 0x8061243a,
-	CELL_ADEC_ERROR_M4AAC_MONO_MIXDOWN_ELEMENT_IS_NOT_SUPPORTED 
-															= 0x8061243b,
-	CELL_ADEC_ERROR_M4AAC_STEREO_MIXDOWN_ELEMENT_IS_NOT_SUPPORTED
-															= 0x8061243c,
+	CELL_ADEC_ERROR_M4AAC_CH_CONFIG_INCONSISTENCY                 = 0x80612410,
+	CELL_ADEC_ERROR_M4AAC_NO_CH_DEFAULT_POS                       = 0x80612411,
+	CELL_ADEC_ERROR_M4AAC_INVALID_CH_POS                          = 0x80612412,
+	CELL_ADEC_ERROR_M4AAC_UNANTICIPATED_COUPLING_CH               = 0x80612413,
+	CELL_ADEC_ERROR_M4AAC_INVALID_LAYER_ID                        = 0x80612414,
+	CELL_ADEC_ERROR_M4AAC_ADTS_SYNCWORD_ERROR                     = 0x80612415,
+	CELL_ADEC_ERROR_M4AAC_INVALID_ADTS_ID                         = 0x80612416,
+	CELL_ADEC_ERROR_M4AAC_CH_CHANGED                              = 0x80612417,
+	CELL_ADEC_ERROR_M4AAC_SAMPLING_FREQ_CHANGED                   = 0x80612418,
+	CELL_ADEC_ERROR_M4AAC_WRONG_SBR_CH                            = 0x80612419,
+	CELL_ADEC_ERROR_M4AAC_WRONG_SCALE_FACTOR                      = 0x8061241a,
+	CELL_ADEC_ERROR_M4AAC_INVALID_BOOKS                           = 0x8061241b,
+	CELL_ADEC_ERROR_M4AAC_INVALID_SECTION_DATA                    = 0x8061241c,
+	CELL_ADEC_ERROR_M4AAC_PULSE_IS_NOT_LONG                       = 0x8061241d,
+	CELL_ADEC_ERROR_M4AAC_GC_IS_NOT_SUPPORTED                     = 0x8061241e,
+	CELL_ADEC_ERROR_M4AAC_INVALID_ELEMENT_ID                      = 0x8061241f,
+	CELL_ADEC_ERROR_M4AAC_NO_CH_CONFIG                            = 0x80612420,
+	CELL_ADEC_ERROR_M4AAC_UNEXPECTED_OVERLAP_CRC                  = 0x80612421,
+	CELL_ADEC_ERROR_M4AAC_CRC_BUFFER_EXCEEDED                     = 0x80612422,
+	CELL_ADEC_ERROR_M4AAC_INVALID_CRC                             = 0x80612423,
+	CELL_ADEC_ERROR_M4AAC_BAD_WINDOW_CODE                         = 0x80612424,
+	CELL_ADEC_ERROR_M4AAC_INVALID_ADIF_HEADER_ID                  = 0x80612425,
+	CELL_ADEC_ERROR_M4AAC_NOT_SUPPORTED_PROFILE                   = 0x80612426,
+	CELL_ADEC_ERROR_M4AAC_PROG_NUMBER_NOT_FOUND                   = 0x80612427,
+	CELL_ADEC_ERROR_M4AAC_INVALID_SAMP_RATE_INDEX                 = 0x80612428,
+	CELL_ADEC_ERROR_M4AAC_UNANTICIPATED_CH_CONFIG                 = 0x80612429,
+	CELL_ADEC_ERROR_M4AAC_PULSE_OVERFLOWED                        = 0x8061242a,
+	CELL_ADEC_ERROR_M4AAC_CAN_NOT_UNPACK_INDEX                    = 0x8061242b,
+	CELL_ADEC_ERROR_M4AAC_DEINTERLEAVE_FAILED                     = 0x8061242c,
+	CELL_ADEC_ERROR_M4AAC_CALC_BAND_OFFSET_FAILED                 = 0x8061242d,
+	CELL_ADEC_ERROR_M4AAC_GET_SCALE_FACTOR_FAILED                 = 0x8061242e,
+	CELL_ADEC_ERROR_M4AAC_GET_CC_GAIN_FAILED                      = 0x8061242f,
+	CELL_ADEC_ERROR_M4AAC_MIX_COUPLING_CH_FAILED                  = 0x80612430,
+	CELL_ADEC_ERROR_M4AAC_GROUP_IS_INVALID                        = 0x80612431,
+	CELL_ADEC_ERROR_M4AAC_PREDICT_FAILED                          = 0x80612432,
+	CELL_ADEC_ERROR_M4AAC_INVALID_PREDICT_RESET_PATTERN           = 0x80612433,
+	CELL_ADEC_ERROR_M4AAC_INVALID_TNS_FRAME_INFO                  = 0x80612434,
+	CELL_ADEC_ERROR_M4AAC_GET_MASK_FAILED                         = 0x80612435,
+	CELL_ADEC_ERROR_M4AAC_GET_GROUP_FAILED                        = 0x80612436,
+	CELL_ADEC_ERROR_M4AAC_GET_LPFLAG_FAILED                       = 0x80612437,
+	CELL_ADEC_ERROR_M4AAC_INVERSE_QUANTIZATION_FAILED             = 0x80612438,
+	CELL_ADEC_ERROR_M4AAC_GET_CB_MAP_FAILED                       = 0x80612439,
+	CELL_ADEC_ERROR_M4AAC_GET_PULSE_FAILED                        = 0x8061243a,
+	CELL_ADEC_ERROR_M4AAC_MONO_MIXDOWN_ELEMENT_IS_NOT_SUPPORTED   = 0x8061243b,
+	CELL_ADEC_ERROR_M4AAC_STEREO_MIXDOWN_ELEMENT_IS_NOT_SUPPORTED = 0x8061243c,
 
-	CELL_ADEC_ERROR_M4AAC_SBR_CH_OVERFLOW					= 0x80612480,
-	CELL_ADEC_ERROR_M4AAC_SBR_NOSYNCH						= 0x80612481,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PROGRAM				= 0x80612482,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_TAG					= 0x80612483,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_CHN_CONFIG			= 0x80612484,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_SECTION				= 0x80612485,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_SCFACTORS				= 0x80612486,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PULSE_DATA			= 0x80612487,
-	CELL_ADEC_ERROR_M4AAC_SBR_MAIN_PROFILE_NOT_IMPLEMENTED	= 0x80612488,
-	CELL_ADEC_ERROR_M4AAC_SBR_GC_NOT_IMPLEMENTED			= 0x80612489,
-	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PLUS_ELE_ID			= 0x8061248a,
-	CELL_ADEC_ERROR_M4AAC_SBR_CREATE_ERROR					= 0x8061248b,
-	CELL_ADEC_ERROR_M4AAC_SBR_NOT_INITIALIZED				= 0x8061248c,
-	CELL_ADEC_ERROR_M4AAC_SBR_INVALID_ENVELOPE				= 0x8061248d,
+	CELL_ADEC_ERROR_M4AAC_SBR_CH_OVERFLOW                         = 0x80612480,
+	CELL_ADEC_ERROR_M4AAC_SBR_NOSYNCH                             = 0x80612481,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PROGRAM                     = 0x80612482,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_TAG                         = 0x80612483,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_CHN_CONFIG                  = 0x80612484,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_SECTION                     = 0x80612485,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_SCFACTORS                   = 0x80612486,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PULSE_DATA                  = 0x80612487,
+	CELL_ADEC_ERROR_M4AAC_SBR_MAIN_PROFILE_NOT_IMPLEMENTED        = 0x80612488,
+	CELL_ADEC_ERROR_M4AAC_SBR_GC_NOT_IMPLEMENTED                  = 0x80612489,
+	CELL_ADEC_ERROR_M4AAC_SBR_ILLEGAL_PLUS_ELE_ID                 = 0x8061248a,
+	CELL_ADEC_ERROR_M4AAC_SBR_CREATE_ERROR                        = 0x8061248b,
+	CELL_ADEC_ERROR_M4AAC_SBR_NOT_INITIALIZED                     = 0x8061248c,
+	CELL_ADEC_ERROR_M4AAC_SBR_INVALID_ENVELOPE                    = 0x8061248d,
 
 
 	CELL_ADEC_ERROR_AC3_BUSY = 0x80612500,
@@ -114,8 +112,8 @@ enum
 
 
 	CELL_ADEC_ERROR_ATX_OFFSET = 0x80612200,
-	CELL_ADEC_ERROR_ATX_NONE	                   = 0x80612200,
-	CELL_ADEC_ERROR_ATX_OK	                       = 0x80612200,
+	CELL_ADEC_ERROR_ATX_NONE                       = 0x80612200,
+	CELL_ADEC_ERROR_ATX_OK                         = 0x80612200,
 	CELL_ADEC_ERROR_ATX_BUSY                       = 0x80612264,
 	CELL_ADEC_ERROR_ATX_EMPTY                      = 0x80612265,
 	CELL_ADEC_ERROR_ATX_ATSHDR                     = 0x80612266,
@@ -207,46 +205,46 @@ enum
 	CELL_ADEC_ERROR_MP3_PCMOUT              = 0x8061279e,
 
 
-	CELL_ADEC_ERROR_M2BC_FATAL			= 0x80612b01,
-	CELL_ADEC_ERROR_M2BC_SEQ			= 0x80612b02,
-	CELL_ADEC_ERROR_M2BC_ARG			= 0x80612b03,
-	CELL_ADEC_ERROR_M2BC_BUSY			= 0x80612b04,
-	CELL_ADEC_ERROR_M2BC_EMPTY			= 0x80612b05,
+	CELL_ADEC_ERROR_M2BC_FATAL          = 0x80612b01,
+	CELL_ADEC_ERROR_M2BC_SEQ            = 0x80612b02,
+	CELL_ADEC_ERROR_M2BC_ARG            = 0x80612b03,
+	CELL_ADEC_ERROR_M2BC_BUSY           = 0x80612b04,
+	CELL_ADEC_ERROR_M2BC_EMPTY          = 0x80612b05,
 
-	CELL_ADEC_ERROR_M2BC_SYNCF			= 0x80612b11,
-	CELL_ADEC_ERROR_M2BC_LAYER			= 0x80612b12,
-	CELL_ADEC_ERROR_M2BC_BITRATE		= 0x80612b13,
-	CELL_ADEC_ERROR_M2BC_SAMPLEFREQ		= 0x80612b14,
-	CELL_ADEC_ERROR_M2BC_VERSION		= 0x80612b15,
-	CELL_ADEC_ERROR_M2BC_MODE_EXT		= 0x80612b16,
-	CELL_ADEC_ERROR_M2BC_UNSUPPORT		= 0x80612b17,
+	CELL_ADEC_ERROR_M2BC_SYNCF          = 0x80612b11,
+	CELL_ADEC_ERROR_M2BC_LAYER          = 0x80612b12,
+	CELL_ADEC_ERROR_M2BC_BITRATE        = 0x80612b13,
+	CELL_ADEC_ERROR_M2BC_SAMPLEFREQ     = 0x80612b14,
+	CELL_ADEC_ERROR_M2BC_VERSION        = 0x80612b15,
+	CELL_ADEC_ERROR_M2BC_MODE_EXT       = 0x80612b16,
+	CELL_ADEC_ERROR_M2BC_UNSUPPORT      = 0x80612b17,
 
-	CELL_ADEC_ERROR_M2BC_OPENBS_EX		= 0x80612b21,
-	CELL_ADEC_ERROR_M2BC_SYNCF_EX		= 0x80612b22,
-	CELL_ADEC_ERROR_M2BC_CRCGET_EX		= 0x80612b23,
-	CELL_ADEC_ERROR_M2BC_CRC_EX			= 0x80612b24,
+	CELL_ADEC_ERROR_M2BC_OPENBS_EX      = 0x80612b21,
+	CELL_ADEC_ERROR_M2BC_SYNCF_EX       = 0x80612b22,
+	CELL_ADEC_ERROR_M2BC_CRCGET_EX      = 0x80612b23,
+	CELL_ADEC_ERROR_M2BC_CRC_EX         = 0x80612b24,
 
-	CELL_ADEC_ERROR_M2BC_CRCGET			= 0x80612b31,
-	CELL_ADEC_ERROR_M2BC_CRC			= 0x80612b32,
-	CELL_ADEC_ERROR_M2BC_BITALLOC		= 0x80612b33,
-	CELL_ADEC_ERROR_M2BC_SCALE			= 0x80612b34,
-	CELL_ADEC_ERROR_M2BC_SAMPLE			= 0x80612b35,
-	CELL_ADEC_ERROR_M2BC_OPENBS			= 0x80612b36,
+	CELL_ADEC_ERROR_M2BC_CRCGET         = 0x80612b31,
+	CELL_ADEC_ERROR_M2BC_CRC            = 0x80612b32,
+	CELL_ADEC_ERROR_M2BC_BITALLOC       = 0x80612b33,
+	CELL_ADEC_ERROR_M2BC_SCALE          = 0x80612b34,
+	CELL_ADEC_ERROR_M2BC_SAMPLE         = 0x80612b35,
+	CELL_ADEC_ERROR_M2BC_OPENBS         = 0x80612b36,
 
-	CELL_ADEC_ERROR_M2BC_MC_CRCGET		= 0x80612b41,
-	CELL_ADEC_ERROR_M2BC_MC_CRC			= 0x80612b42,
-	CELL_ADEC_ERROR_M2BC_MC_BITALLOC	= 0x80612b43,
-	CELL_ADEC_ERROR_M2BC_MC_SCALE		= 0x80612b44,
-	CELL_ADEC_ERROR_M2BC_MC_SAMPLE		= 0x80612b45,
-	CELL_ADEC_ERROR_M2BC_MC_HEADER		= 0x80612b46,
-	CELL_ADEC_ERROR_M2BC_MC_STATUS		= 0x80612b47,
+	CELL_ADEC_ERROR_M2BC_MC_CRCGET      = 0x80612b41,
+	CELL_ADEC_ERROR_M2BC_MC_CRC         = 0x80612b42,
+	CELL_ADEC_ERROR_M2BC_MC_BITALLOC    = 0x80612b43,
+	CELL_ADEC_ERROR_M2BC_MC_SCALE       = 0x80612b44,
+	CELL_ADEC_ERROR_M2BC_MC_SAMPLE      = 0x80612b45,
+	CELL_ADEC_ERROR_M2BC_MC_HEADER      = 0x80612b46,
+	CELL_ADEC_ERROR_M2BC_MC_STATUS      = 0x80612b47,
 
-	CELL_ADEC_ERROR_M2BC_AG_CCRCGET		= 0x80612b51,
-	CELL_ADEC_ERROR_M2BC_AG_CRC			= 0x80612b52,
-	CELL_ADEC_ERROR_M2BC_AG_BITALLOC	= 0x80612b53,
-	CELL_ADEC_ERROR_M2BC_AG_SCALE		= 0x80612b54,
-	CELL_ADEC_ERROR_M2BC_AG_SAMPLE		= 0x80612b55,
-	CELL_ADEC_ERROR_M2BC_AG_STATUS		= 0x80612b57,
+	CELL_ADEC_ERROR_M2BC_AG_CCRCGET     = 0x80612b51,
+	CELL_ADEC_ERROR_M2BC_AG_CRC         = 0x80612b52,
+	CELL_ADEC_ERROR_M2BC_AG_BITALLOC    = 0x80612b53,
+	CELL_ADEC_ERROR_M2BC_AG_SCALE       = 0x80612b54,
+	CELL_ADEC_ERROR_M2BC_AG_SAMPLE      = 0x80612b55,
+	CELL_ADEC_ERROR_M2BC_AG_STATUS      = 0x80612b57,
 };
 
 // Audio Codec Type
@@ -285,6 +283,14 @@ enum AudioCodecType
 	CELL_ADEC_TYPE_RESERVED24,
 	CELL_ADEC_TYPE_RESERVED25,
 };
+
+static bool adecIsAtracX(const AudioCodecType type)
+{
+	return type == CELL_ADEC_TYPE_ATRACX
+		|| type == CELL_ADEC_TYPE_ATRACX_2CH
+		|| type == CELL_ADEC_TYPE_ATRACX_6CH
+		|| type == CELL_ADEC_TYPE_ATRACX_8CH;
+}
 
 // Output Channel Number
 enum CellAdecChannel
@@ -362,11 +368,11 @@ enum CellAdecMsgType
 	CELL_ADEC_MSG_TYPE_SEQDONE,
 };
 
-typedef mem_func_ptr_t<int (*)(u32 handle, CellAdecMsgType msgType, int msgData, u32 cbArg)> CellAdecCbMsg;
+typedef s32(*CellAdecCbMsg)(u32 handle, CellAdecMsgType msgType, s32 msgData, u32 cbArg);
 
 struct CellAdecCb
 {
-	be_t<u32> cbFunc;
+	vm::bptr<CellAdecCbMsg> cbFunc;
 	be_t<u32> cbArg;
 };
 
@@ -792,7 +798,7 @@ struct CellAdecParamAtracX
 	be_t<s32> ch_config_idx;
 	be_t<s32> nch_out;
 	be_t<s32> nbytes;
-	u8 extra_config_data[4]; // downmix coefficients
+	std::array<u8, 4> extra_config_data; // downmix coefficients
 	be_t<ATRACX_WordSize> bw_pcm;
 	ATRACX_DownmixFlag downmix_flag;
 	ATRACX_ATSHeaderInclude au_includes_ats_hdr_flg;
@@ -1012,6 +1018,18 @@ struct AdecTask
 			u64 pts;
 			u64 userdata;
 		} au;
+
+		struct
+		{
+			s32 sample_rate;
+			s32 channel_config;
+			s32 channels;
+			s32 frame_size;
+			std::array<u8, 4> extra_config;
+			s32 output;
+			u8 downmix;
+			u8 ats_header;
+		} at3p;
 	};
 
 	AdecTask(AdecJobType type)
@@ -1036,15 +1054,62 @@ struct AdecFrame
 
 int adecRead(void* opaque, u8* buf, int buf_size);
 
+static const u32 at3freq[8] = { 32000, 44100, 48000, 88200, 96000, 0, 0, 0 };
+
+struct OMAHeader // OMA Header
+{
+	u32 magic; // 0x01334145
+	u16 size; // 96 << 8
+	u16 unk0; // 0xffff
+	u64 unk1; // 0x00500f0100000000ULL
+	u64 unk2; // 0xcef5000000000400ULL
+	u64 unk3; // 0x1c458024329192d2ULL
+	u8 codecId; // 1 for ATRAC3P
+	u8 code0; // 0
+	u8 code1;
+	u8 code2;
+	u32 reserved[15]; // 0
+
+	OMAHeader(u8 codec_id, u32 freq, u8 channel_count, u32 frame_size)
+		: magic(0x01334145)
+		, size(96 << 8)
+		, unk0(0xffff)
+		, unk1(0x00500f0100000000ULL)
+		, unk2(0xcef5000000000400ULL)
+		, unk3(0x1c458024329192d2ULL)
+		, codecId(codec_id)
+		, code0(0)
+	{
+		memset(reserved, 0, sizeof(reserved));
+
+		u8 freq_code;
+		for (freq_code = 0; freq_code < 5; freq_code++)
+		{
+			if (at3freq[freq_code] == freq)
+			{
+				break;
+			}
+		}
+		u32 prepared_frame_size = (frame_size - 8) / 8;
+		code1 = ((prepared_frame_size >> 8) & 0x3) | ((channel_count & 0x7) << 2) | (freq_code << 5);
+		code2 = prepared_frame_size & 0xff;
+	}
+};
+
+static_assert(sizeof(OMAHeader) == 96, "Wrong OMAHeader size");
+
 class AudioDecoder
 {
 public:
 	SQueue<AdecTask> job;
 	u32 id;
-	volatile bool is_running;
+	volatile bool is_closed;
 	volatile bool is_finished;
 	bool just_started;
+	bool just_finished;
 
+	AVCodec* codec;
+	AVInputFormat* input_format;
 	AVCodecContext* ctx;
 	AVFormatContext* fmt;
 	u8* io_buf;
@@ -1053,6 +1118,14 @@ public:
 	{
 		u32 addr;
 		u32 size;
+		bool init;
+		bool has_ats;
+
+		AudioReader()
+			: init(false)
+		{
+		}
+
 	} reader;
 
 	SQueue<AdecFrame> frames;
@@ -1060,71 +1133,22 @@ public:
 	const AudioCodecType type;
 	const u32 memAddr;
 	const u32 memSize;
-	const u32 cbFunc;
+	const vm::ptr<CellAdecCbMsg> cbFunc;
 	const u32 cbArg;
 	u32 memBias;
 
-	CPUThread* adecCb;
+	AdecTask task;
+	u64 last_pts, first_pts;
 
-	AudioDecoder(AudioCodecType type, u32 addr, u32 size, u32 func, u32 arg)
-		: type(type)
-		, memAddr(addr)
-		, memSize(size)
-		, memBias(0)
-		, cbFunc(func)
-		, cbArg(arg)
-		, adecCb(nullptr)
-		, is_running(false)
-		, is_finished(false)
-		, just_started(false)
-		, ctx(nullptr)
-		, fmt(nullptr)
-	{
-		AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_ATRAC3P);
-		if (!codec)
-		{
-			ConLog.Error("AudioDecoder(): avcodec_find_decoder(ATRAC3P) failed");
-			Emu.Pause();
-			return;
-		}
-		fmt = avformat_alloc_context();
-		if (!fmt)
-		{
-			ConLog.Error("AudioDecoder(): avformat_alloc_context failed");
-			Emu.Pause();
-			return;
-		}
-		io_buf = (u8*)av_malloc(4096);
-		fmt->pb = avio_alloc_context(io_buf, 4096, 0, this, adecRead, NULL, NULL);
-		if (!fmt->pb)
-		{
-			ConLog.Error("AudioDecoder(): avio_alloc_context failed");
-			Emu.Pause();
-			return;
-		}
-	}
+	u32 ch_out;
+	u32 ch_cfg;
+	u32 frame_size;
+	u32 sample_rate;
+	bool use_ats_headers;
 
-	~AudioDecoder()
-	{
-		if (ctx)
-		{
-			for (u32 i = frames.GetCount() - 1; ~i; i--)
-			{
-				AdecFrame& af = frames.Peek(i);
-				av_frame_unref(af.data);
-				av_frame_free(&af.data);
-			}
-			avcodec_close(ctx);
-			avformat_close_input(&fmt);
-		}
-		if (fmt)
-		{
-			if (io_buf)
-			{
-				av_free(io_buf);
-			}
-			if (fmt->pb) av_free(fmt->pb);
-			avformat_free_context(fmt);
-		}
-	}
+	PPUThread* adecCb;
+
+	AudioDecoder(AudioCodecType type, u32 addr, u32 size, vm::ptr<CellAdecCbMsg> func, u32 arg);
+
+	~AudioDecoder();
 };

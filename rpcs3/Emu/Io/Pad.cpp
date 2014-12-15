@@ -1,7 +1,27 @@
 #include "stdafx.h"
-#include "Pad.h"
+#include "rpcs3/Ini.h"
 #include "Null/NullPadHandler.h"
-#include "Windows/WindowsPadHandler.h"
+#include "Pad.h"
+
+GetPadHandlerCountCb GetPadHandlerCount = []()
+{
+	return 1;
+};
+
+GetPadHandlerCb GetPadHandler = [](int i) -> PadHandlerBase*
+{
+	return new NullPadHandler;
+};
+
+void SetGetPadHandlerCountCallback(GetPadHandlerCountCb cb)
+{
+	GetPadHandlerCount = cb;
+}
+
+void SetGetPadHandlerCallback(GetPadHandlerCb cb)
+{
+	GetPadHandler = cb;
+}
 
 PadManager::PadManager()
 	: m_pad_handler(nullptr)
@@ -15,15 +35,17 @@ PadManager::~PadManager()
 
 void PadManager::Init(const u32 max_connect)
 {
-	if(m_inited) return;
+	if(m_inited)
+		return;
 
-	switch(Ini.PadHandlerMode.GetValue())
+	// NOTE: Change these to std::make_unique assignments when C++14 is available.
+	int numHandlers = GetPadHandlerCount();
+	int selectedHandler = Ini.PadHandlerMode.GetValue();
+	if (selectedHandler > numHandlers)
 	{
-	case 1: m_pad_handler = new WindowsPadHandler(); break;
-
-	default:
-	case 0: m_pad_handler = new NullPadHandler(); break;
+		selectedHandler = 0;
 	}
+	m_pad_handler.reset(GetPadHandler(selectedHandler));
 
 	m_pad_handler->Init(max_connect);
 	m_inited = true;

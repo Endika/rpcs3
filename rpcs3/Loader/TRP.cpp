@@ -1,21 +1,31 @@
 #include "stdafx.h"
+#include "Utilities/Log.h"
+#include "Emu/System.h"
+#include "Emu/FS/VFS.h"
+#include "Emu/FS/vfsFile.h"
 #include "TRP.h"
 
 TRPLoader::TRPLoader(vfsStream& f) : trp_f(f)
 {
 }
 
+TRPLoader::~TRPLoader()
+{
+	Close();
+}
+
 bool TRPLoader::Install(std::string dest, bool show)
 {
-	if(!trp_f.IsOpened()) return false;
-	if(!LoadHeader(show)) return false;
+	if(!trp_f.IsOpened())
+		return false;
 
 	if (!dest.empty() && dest.back() != '/')
 		dest += '/';
 
+	Emu.GetVFS().CreateDir(dest);
 	for (const TRPEntry& entry : m_entries)
 	{
-		char* buffer = new char [entry.size];
+		char* buffer = new char [(u32)entry.size];
 		Emu.GetVFS().CreateFile(dest+entry.name);
 		vfsFile file(dest+entry.name, vfsWrite);
 		trp_f.Seek(entry.offset);
@@ -28,13 +38,11 @@ bool TRPLoader::Install(std::string dest, bool show)
 	return true;
 }
 
-bool TRPLoader::Close()
-{
-	return trp_f.Close();
-}
-
 bool TRPLoader::LoadHeader(bool show)
 {
+	if(!trp_f.IsOpened())
+		return false;
+
 	trp_f.Seek(0);
 	if (trp_f.Read(&m_header, sizeof(TRPHeader)) != sizeof(TRPHeader))
 		return false;
@@ -43,7 +51,7 @@ bool TRPLoader::LoadHeader(bool show)
 		return false;
 
 	if (show)
-		ConLog.Write("TRP version: %x", m_header.trp_version);
+		LOG_NOTICE(LOADER, "TRP version: 0x%x", m_header.trp_version);
 
 	m_entries.clear();
 	m_entries.resize(m_header.trp_files_count);
@@ -54,8 +62,41 @@ bool TRPLoader::LoadHeader(bool show)
 			return false;
 
 		if (show)
-			ConLog.Write("TRP entry #%d: %s", wxString(m_entries[i].name).wx_str());
+			LOG_NOTICE(LOADER, "TRP entry #%d: %s", m_entries[i].name);
 	}
 
 	return true;
+}
+
+bool TRPLoader::ContainsEntry(const char *filename)
+{
+	for (const TRPEntry& entry : m_entries) {
+		if (!strcmp(entry.name, filename))
+			return true;
+	}
+	return false;
+}
+
+void TRPLoader::RemoveEntry(const char *filename)
+{
+	std::vector<TRPEntry>::iterator i = m_entries.begin();
+	while (i != m_entries.end()) {
+		if (!strcmp(i->name, filename))
+			i = m_entries.erase(i);
+		else
+			i++;
+	}
+}
+
+void TRPLoader::RenameEntry(const char *oldname, const char *newname)
+{
+	for (const TRPEntry& entry : m_entries) {
+		if (!strcmp(entry.name, oldname))
+			memcpy((void*)entry.name, newname, 32);
+	}
+}
+
+bool TRPLoader::Close()
+{
+	return trp_f.Close();
 }

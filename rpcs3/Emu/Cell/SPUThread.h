@@ -1,122 +1,169 @@
 #pragma once
+#include "Emu/Memory/atomic_type.h"
 #include "PPCThread.h"
-#include "Emu/event.h"
+#include "Emu/Event.h"
 #include "MFC.h"
-#include <mutex>
-
-static const char* spu_reg_name[128] =
-{
-	"$LR",  "$SP",  "$2",   "$3",   "$4",   "$5",   "$6",   "$7",
-	"$8",   "$9",   "$10",  "$11",  "$12",  "$13",  "$14",  "$15",
-	"$16",  "$17",  "$18",  "$19",  "$20",  "$21",  "$22",  "$23",
-	"$24",  "$25",  "$26",  "$27",  "$28",  "$29",  "$30",  "$31",
-	"$32",  "$33",  "$34",  "$35",  "$36",  "$37",  "$38",  "$39",
-	"$40",  "$41",  "$42",  "$43",  "$44",  "$45",  "$46",  "$47",
-	"$48",  "$49",  "$50",  "$51",  "$52",  "$53",  "$54",  "$55",
-	"$56",  "$57",  "$58",  "$59",  "$60",  "$61",  "$62",  "$63",
-	"$64",  "$65",  "$66",  "$67",  "$68",  "$69",  "$70",  "$71",
-	"$72",  "$73",  "$74",  "$75",  "$76",  "$77",  "$78",  "$79",
-	"$80",  "$81",  "$82",  "$83",  "$84",  "$85",  "$86",  "$87",
-	"$88",  "$89",  "$90",  "$91",  "$92",  "$93",  "$94",  "$95",
-	"$96",  "$97",  "$98",  "$99",  "$100", "$101", "$102", "$103",
-	"$104", "$105", "$106", "$107", "$108", "$109", "$110", "$111",
-	"$112", "$113", "$114", "$115", "$116", "$117", "$118", "$119",
-	"$120", "$121", "$122", "$123", "$124", "$125", "$126", "$127",
-};
-//SPU reg $0 is a dummy reg, and is used for certain instructions.
-static const char* spu_specialreg_name[128] = {
-	"$0",  "$1",  "$2",   "$3",   "$4",   "$5",   "$6",   "$7",
-	"$8",   "$9",   "$10",  "$11",  "$12",  "$13",  "$14",  "$15",
-	"$16",  "$17",  "$18",  "$19",  "$20",  "$21",  "$22",  "$23",
-	"$24",  "$25",  "$26",  "$27",  "$28",  "$29",  "$30",  "$31",
-	"$32",  "$33",  "$34",  "$35",  "$36",  "$37",  "$38",  "$39",
-	"$40",  "$41",  "$42",  "$43",  "$44",  "$45",  "$46",  "$47",
-	"$48",  "$49",  "$50",  "$51",  "$52",  "$53",  "$54",  "$55",
-	"$56",  "$57",  "$58",  "$59",  "$60",  "$61",  "$62",  "$63",
-	"$64",  "$65",  "$66",  "$67",  "$68",  "$69",  "$70",  "$71",
-	"$72",  "$73",  "$74",  "$75",  "$76",  "$77",  "$78",  "$79",
-	"$80",  "$81",  "$82",  "$83",  "$84",  "$85",  "$86",  "$87",
-	"$88",  "$89",  "$90",  "$91",  "$92",  "$93",  "$94",  "$95",
-	"$96",  "$97",  "$98",  "$99",  "$100", "$101", "$102", "$103",
-	"$104", "$105", "$106", "$107", "$108", "$109", "$110", "$111",
-	"$112", "$113", "$114", "$115", "$116", "$117", "$118", "$119",
-	"$120", "$121", "$122", "$123", "$124", "$125", "$126", "$127",
-};
-
-static const char* spu_ch_name[128] =
-{
-	"$SPU_RdEventStat", "$SPU_WrEventMask", "$SPU_WrEventAck", "$SPU_RdSigNotify1",
-	"$SPU_RdSigNotify2", "$ch5",  "$ch6",  "$SPU_WrDec", "$SPU_RdDec",
-	"$MFC_WrMSSyncReq",   "$ch10",  "$SPU_RdEventMask",  "$MFC_RdTagMask",  "$SPU_RdMachStat",
-	"$SPU_WrSRR0",  "$SPU_RdSRR0",  "$MFC_LSA", "$MFC_EAH",  "$MFC_EAL",  "$MFC_Size",
-	"$MFC_TagID",  "$MFC_Cmd",  "$MFC_WrTagMask",  "$MFC_WrTagUpdate",  "$MFC_RdTagStat",
-	"$MFC_RdListStallStat",  "$MFC_WrListStallAck",  "$MFC_RdAtomicStat",
-	"$SPU_WrOutMbox", "$SPU_RdInMbox", "$SPU_WrOutIntrMbox", "$ch31",  "$ch32",
-	"$ch33",  "$ch34",  "$ch35",  "$ch36",  "$ch37",  "$ch38",  "$ch39",  "$ch40",
-	"$ch41",  "$ch42",  "$ch43",  "$ch44",  "$ch45",  "$ch46",  "$ch47",  "$ch48",
-	"$ch49",  "$ch50",  "$ch51",  "$ch52",  "$ch53",  "$ch54",  "$ch55",  "$ch56",
-	"$ch57",  "$ch58",  "$ch59",  "$ch60",  "$ch61",  "$ch62",  "$ch63",  "$ch64",
-	"$ch65",  "$ch66",  "$ch67",  "$ch68",  "$ch69",  "$ch70",  "$ch71",  "$ch72",
-	"$ch73",  "$ch74",  "$ch75",  "$ch76",  "$ch77",  "$ch78",  "$ch79",  "$ch80",
-	"$ch81",  "$ch82",  "$ch83",  "$ch84",  "$ch85",  "$ch86",  "$ch87",  "$ch88",
-	"$ch89",  "$ch90",  "$ch91",  "$ch92",  "$ch93",  "$ch94",  "$ch95",  "$ch96",
-	"$ch97",  "$ch98",  "$ch99",  "$ch100", "$ch101", "$ch102", "$ch103", "$ch104",
-	"$ch105", "$ch106", "$ch107", "$ch108", "$ch109", "$ch110", "$ch111", "$ch112",
-	"$ch113", "$ch114", "$ch115", "$ch116", "$ch117", "$ch118", "$ch119", "$ch120",
-	"$ch121", "$ch122", "$ch123", "$ch124", "$ch125", "$ch126", "$ch127",
-};
 
 enum SPUchannels 
 {
-	SPU_RdEventStat		= 0,	//Read event status with mask applied
-	SPU_WrEventMask		= 1,	//Write event mask
-	SPU_WrEventAck		= 2,	//Write end of event processing
-	SPU_RdSigNotify1	= 3,	//Signal notification 1
-	SPU_RdSigNotify2	= 4,	//Signal notification 2
-	SPU_WrDec			= 7,	//Write decrementer count
-	SPU_RdDec			= 8,	//Read decrementer count
-	SPU_RdEventMask		= 11,	//Read event mask
-	SPU_RdMachStat		= 13,	//Read SPU run status
-	SPU_WrSRR0			= 14,	//Write SPU machine state save/restore register 0 (SRR0)
-	SPU_RdSRR0			= 15,	//Read SPU machine state save/restore register 0 (SRR0)
-	SPU_WrOutMbox		= 28,	//Write outbound mailbox contents
-	SPU_RdInMbox		= 29,	//Read inbound mailbox contents
-	SPU_WrOutIntrMbox	= 30,	//Write outbound interrupt mailbox contents (interrupting PPU)
+	SPU_RdEventStat     = 0,  //Read event status with mask applied
+	SPU_WrEventMask     = 1,  //Write event mask
+	SPU_WrEventAck      = 2,  //Write end of event processing
+	SPU_RdSigNotify1    = 3,  //Signal notification 1
+	SPU_RdSigNotify2    = 4,  //Signal notification 2
+	SPU_WrDec           = 7,  //Write decrementer count
+	SPU_RdDec           = 8,  //Read decrementer count
+	SPU_RdEventMask     = 11, //Read event mask
+	SPU_RdMachStat      = 13, //Read SPU run status
+	SPU_WrSRR0          = 14, //Write SPU machine state save/restore register 0 (SRR0)
+	SPU_RdSRR0          = 15, //Read SPU machine state save/restore register 0 (SRR0)
+	SPU_WrOutMbox       = 28, //Write outbound mailbox contents
+	SPU_RdInMbox        = 29, //Read inbound mailbox contents
+	SPU_WrOutIntrMbox   = 30, //Write outbound interrupt mailbox contents (interrupting PPU)
 };
 
 enum MFCchannels 
 {
-	MFC_WrMSSyncReq		= 9,	//Write multisource synchronization request
-	MFC_RdTagMask		= 12,	//Read tag mask
-	MFC_LSA				= 16,	//Write local memory address command parameter
-	MFC_EAH				= 17,	//Write high order DMA effective address command parameter
-	MFC_EAL				= 18,	//Write low order DMA effective address command parameter
-	MFC_Size			= 19,	//Write DMA transfer size command parameter
-	MFC_TagID			= 20,	//Write tag identifier command parameter
-	MFC_Cmd				= 21,	//Write and enqueue DMA command with associated class ID
-	MFC_WrTagMask		= 22,	//Write tag mask
-	MFC_WrTagUpdate		= 23,	//Write request for conditional or unconditional tag status update
-	MFC_RdTagStat		= 24,	//Read tag status with mask applied
-	MFC_RdListStallStat = 25,	//Read DMA list stall-and-notify status
-	MFC_WrListStallAck	= 26,	//Write DMA list stall-and-notify acknowledge
-	MFC_RdAtomicStat	= 27,	//Read completion status of last completed immediate MFC atomic update command
+	MFC_WrMSSyncReq     = 9,  //Write multisource synchronization request
+	MFC_RdTagMask       = 12, //Read tag mask
+	MFC_LSA             = 16, //Write local memory address command parameter
+	MFC_EAH             = 17, //Write high order DMA effective address command parameter
+	MFC_EAL             = 18, //Write low order DMA effective address command parameter
+	MFC_Size            = 19, //Write DMA transfer size command parameter
+	MFC_TagID           = 20, //Write tag identifier command parameter
+	MFC_Cmd             = 21, //Write and enqueue DMA command with associated class ID
+	MFC_WrTagMask       = 22, //Write tag mask
+	MFC_WrTagUpdate     = 23, //Write request for conditional or unconditional tag status update
+	MFC_RdTagStat       = 24, //Read tag status with mask applied
+	MFC_RdListStallStat = 25, //Read DMA list stall-and-notify status
+	MFC_WrListStallAck  = 26, //Write DMA list stall-and-notify acknowledge
+	MFC_RdAtomicStat    = 27, //Read completion status of last completed immediate MFC atomic update command
+};
+
+enum SPUEvents
+{
+	SPU_EVENT_MS = 0x1000, // multisource synchronization event
+	SPU_EVENT_A  = 0x800, // privileged attention event
+	SPU_EVENT_LR = 0x400, // lock line reservation lost event
+	SPU_EVENT_S1 = 0x200, // signal notification register 1 available
+	SPU_EVENT_S2 = 0x100, // signal notification register 2 available
+	SPU_EVENT_LE = 0x80, // SPU outbound mailbox available
+	SPU_EVENT_ME = 0x40, // SPU outbound interrupt mailbox available
+	SPU_EVENT_TM = 0x20, // SPU decrementer became negative (?)
+	SPU_EVENT_MB = 0x10, // SPU inbound mailbox available
+	SPU_EVENT_QV = 0x4, // MFC SPU command queue available
+	SPU_EVENT_SN = 0x2, // MFC list command stall-and-notify event
+	SPU_EVENT_TG = 0x1, // MFC tag-group status update event
+
+	SPU_EVENT_IMPLEMENTED = SPU_EVENT_LR,
 };
 
 enum
 {
-	SPU_RUNCNTL_STOP		= 0,
-	SPU_RUNCNTL_RUNNABLE	= 1,
+	SPU_RUNCNTL_STOP     = 0,
+	SPU_RUNCNTL_RUNNABLE = 1,
 };
 
 enum
 {
-	SPU_STATUS_STOPPED				= 0x0,
-	SPU_STATUS_RUNNING				= 0x1,
-	SPU_STATUS_STOPPED_BY_STOP		= 0x2,
-	SPU_STATUS_STOPPED_BY_HALT		= 0x4,
-	SPU_STATUS_WAITING_FOR_CHANNEL	= 0x8,
-	SPU_STATUS_SINGLE_STEP			= 0x10,
+	SPU_STATUS_STOPPED             = 0x0,
+	SPU_STATUS_RUNNING             = 0x1,
+	SPU_STATUS_STOPPED_BY_STOP     = 0x2,
+	SPU_STATUS_STOPPED_BY_HALT     = 0x4,
+	SPU_STATUS_WAITING_FOR_CHANNEL = 0x8,
+	SPU_STATUS_SINGLE_STEP         = 0x10,
 };
+
+enum : u32
+{
+	SYS_SPU_THREAD_BASE_LOW  = 0xf0000000,
+	SYS_SPU_THREAD_BASE_MASK = 0xfffffff,
+	SYS_SPU_THREAD_OFFSET    = 0x00100000,
+	SYS_SPU_THREAD_SNR1      = 0x05400c,
+	SYS_SPU_THREAD_SNR2      = 0x05C00c,
+};
+
+enum
+{
+	MFC_LSA_offs = 0x3004,
+	MFC_EAH_offs = 0x3008,
+	MFC_EAL_offs = 0x300C,
+	MFC_Size_Tag_offs = 0x3010,
+	MFC_Class_CMD_offs = 0x3014,
+	MFC_CMDStatus_offs = 0x3014,
+	MFC_QStatus_offs = 0x3104,
+	Prxy_QueryType_offs = 0x3204,
+	Prxy_QueryMask_offs = 0x321C,
+	Prxy_TagStatus_offs = 0x322C,
+	SPU_Out_MBox_offs = 0x4004,
+	SPU_In_MBox_offs = 0x400C,
+	SPU_MBox_Status_offs = 0x4014,
+	SPU_RunCntl_offs = 0x401C,
+	SPU_Status_offs = 0x4024,
+	SPU_NPC_offs = 0x4034,
+	SPU_RdSigNotify1_offs = 0x1400C,
+	SPU_RdSigNotify2_offs = 0x1C00C,
+};
+
+#define mmToU64Ptr(x) ((u64*)(&x))
+#define mmToU32Ptr(x) ((u32*)(&x))
+#define mmToU16Ptr(x) ((u16*)(&x))
+#define mmToU8Ptr(x) ((u8*)(&x))
+
+struct g_imm_table_struct
+{
+	//u16 cntb_table[65536];
+
+	__m128i fsmb_table[65536];
+	__m128i fsmh_table[256];
+	__m128i fsm_table[16];
+
+	__m128i sldq_pshufb[32];
+	__m128i srdq_pshufb[32];
+	__m128i rldq_pshufb[16];
+
+	g_imm_table_struct()
+	{
+		/*static_assert(offsetof(g_imm_table_struct, cntb_table) == 0, "offsetof(cntb_table) != 0");
+		for (u32 i = 0; i < sizeof(cntb_table) / sizeof(cntb_table[0]); i++)
+		{
+		u32 cnt_low = 0, cnt_high = 0;
+		for (u32 j = 0; j < 8; j++)
+		{
+		cnt_low += (i >> j) & 1;
+		cnt_high += (i >> (j + 8)) & 1;
+		}
+		cntb_table[i] = (cnt_high << 8) | cnt_low;
+		}*/
+		for (u32 i = 0; i < sizeof(fsm_table) / sizeof(fsm_table[0]); i++)
+		{
+
+			for (u32 j = 0; j < 4; j++) mmToU32Ptr(fsm_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
+		}
+		for (u32 i = 0; i < sizeof(fsmh_table) / sizeof(fsmh_table[0]); i++)
+		{
+			for (u32 j = 0; j < 8; j++) mmToU16Ptr(fsmh_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
+		}
+		for (u32 i = 0; i < sizeof(fsmb_table) / sizeof(fsmb_table[0]); i++)
+		{
+			for (u32 j = 0; j < 16; j++) mmToU8Ptr(fsmb_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
+		}
+		for (u32 i = 0; i < sizeof(sldq_pshufb) / sizeof(sldq_pshufb[0]); i++)
+		{
+			for (u32 j = 0; j < 16; j++) mmToU8Ptr(sldq_pshufb[i])[j] = (u8)(j - i);
+		}
+		for (u32 i = 0; i < sizeof(srdq_pshufb) / sizeof(srdq_pshufb[0]); i++)
+		{
+			for (u32 j = 0; j < 16; j++) mmToU8Ptr(srdq_pshufb[i])[j] = (j + i > 15) ? 0xff : (u8)(j + i);
+		}
+		for (u32 i = 0; i < sizeof(rldq_pshufb) / sizeof(rldq_pshufb[0]); i++)
+		{
+			for (u32 j = 0; j < 16; j++) mmToU8Ptr(rldq_pshufb[i])[j] = (u8)(j - i) & 0xf;
+		}
+	}
+};
+
+extern const g_imm_table_struct g_imm_table;
 
 //Floating point status and control register.  Unsure if this is one of the GPRs or SPRs
 //Is 128 bits, but bits 0-19, 24-28, 32-49, 56-60, 64-81, 88-92, 96-115, 120-124 are unused
@@ -128,9 +175,9 @@ public:
 
 	FPSCR() {}
 
-	wxString ToString() const
+	std::string ToString() const
 	{
-		return "FPSCR writer not yet implemented"; //wxString::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
+		return "FPSCR writer not yet implemented"; //fmt::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
 	}
 
 	void Reset()
@@ -159,7 +206,7 @@ public:
 		this->low = this->low & mask;
 	}
 	//Slice 0 or 1
-	u8 checkSliceRounding(u8 slice)
+	u8 checkSliceRounding(u8 slice) const
 	{
 		switch(slice)
 		{
@@ -168,6 +215,10 @@ public:
 		
 		case 1:
 			return this->low >> 22 & 0x3;
+
+		default:
+			throw fmt::Format("Unexpected slice value in FPSCR::checkSliceRounding(): %d", slice);
+			return 0;
 		}
 	}
 
@@ -201,64 +252,15 @@ public:
 	
 };
 
-union SPU_GPR_hdr
-{
-	u128 _u128;
-	s128 _i128;
-	__m128 _m128;
-	__m128i _m128i;
-	u64 _u64[2];
-	s64 _i64[2];
-	u32 _u32[4];
-	s32 _i32[4];
-	u16 _u16[8];
-	s16 _i16[8];
-	u8  _u8[16];
-	s8  _i8[16];
-	double _d[2];
-	float _f[4];
-
-	SPU_GPR_hdr() {}
-
-	wxString ToString() const
-	{
-		return wxString::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
-	}
-
-	void Reset()
-	{
-		memset(this, 0, sizeof(*this));
-	}
-};
-
-union SPU_SPR_hdr
-{
-	u128 _u128;
-	s128 _i128;
-	u32 _u32[4];
-
-	SPU_SPR_hdr() {}
-
-	wxString ToString() const
-	{
-		return wxString::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
-	}
-
-	void Reset()
-	{
-		memset(this, 0, sizeof(*this));
-	}
-};
-
 union SPU_SNRConfig_hdr
 {
 	u64 value;
 
 	SPU_SNRConfig_hdr() {}
 
-	wxString ToString() const
+	std::string ToString() const
 	{
-		return wxString::Format("%01x", value);
+		return fmt::Format("%01x", value);
 	}
 
 	void Reset()
@@ -267,202 +269,165 @@ union SPU_SNRConfig_hdr
 	}
 };
 
+struct SpuGroupInfo;
+
 class SPUThread : public PPCThread
 {
 public:
-	SPU_GPR_hdr GPR[128]; //General-Purpose Register
-	SPU_SPR_hdr SPR[128]; //Special-Purpose Registers
-	FPSCR FPSCR;
-	SPU_SNRConfig_hdr cfg; //Signal Notification Registers Configuration (OR-mode enabled: 0x1 for SNR1, 0x2 for SNR2)
+	u128 GPR[128]; // General-Purpose Registers
+	//FPSCR FPSCR;
+	SPU_SNRConfig_hdr cfg; // Signal Notification Registers Configuration (OR-mode enabled: 0x1 for SNR1, 0x2 for SNR2)
+
+	u64 R_ADDR; // reservation address
+	u64 R_DATA[16]; // lock line data (BE)
 
 	EventPort SPUPs[64]; // SPU Thread Event Ports
 	EventManager SPUQs; // SPU Queue Mapping
+	SpuGroupInfo* group; // associated SPU Thread Group (null for raw spu)
 
-	template<size_t _max_count>
+	u64 m_dec_start; // timestamp of writing decrementer value
+	u32 m_dec_value; // written decrementer value
+
+	u32 m_event_mask;
+	u32 m_events;
+
+	struct IntrTag
+	{
+		u32 enabled; // 1 == true
+		u32 thread; // established interrupt PPU thread
+		u64 mask;
+		u64 stat;
+
+		IntrTag()
+			: enabled(0)
+			, thread(0)
+			, mask(0)
+			, stat(0)
+		{
+		}
+	} m_intrtag[3];
+
+	// limited lock-free queue, most functions are barrier-free
+	template<size_t max_count>
 	class Channel
 	{
-	public:
-		static const size_t max_count = _max_count;
-#ifdef _M_X64
-		static const bool x86 = false;
-#else
-		static const bool x86 = true;
-#endif
+		static_assert(max_count >= 1, "Invalid channel count");
 
-	private:
-		union _CRT_ALIGN(8) {
-			struct {
-				volatile u32 m_index;
-				u32 m_value[max_count];
-			};
-			volatile u64 m_indval;
+		struct ChannelData
+		{
+			u32 value;
+			u32 is_set;
 		};
-		std::mutex m_lock;
+
+		atomic_t<ChannelData> m_data[max_count];
+		size_t m_push;
+		size_t m_pop;
 
 	public:
-
-		Channel()
+		__noinline Channel()
 		{
-			Init();
-		}
-
-		void Init()
-		{
-			m_index = 0;
-		}
-
-		__forceinline bool Pop(u32& res)
-		{
-			if (max_count > 1 || x86)
+			for (size_t i = 0; i < max_count; i++)
 			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				if(!m_index) 
-				{
-					return false;
-				}
-				res = m_value[0];
-				for (u32 i = 1; i < max_count; i++) // FIFO
-				{
-					m_value[i-1] = m_value[i];
-				}
-				m_value[max_count-1] = 0;
-				m_index--;
-				return true;
+				m_data[i].write_relaxed({});
 			}
-			else
-			{ //lock-free
-				if ((m_indval & 0xffffffff) == 0)
-					return false;
-				else
-				{
-					res = (m_indval >> 32);
-					m_indval = 0;
-					return true;
-				}				
-			}
-		}
-
-		__forceinline bool Push(u32 value)
-		{
-			if (max_count > 1 || x86)
-			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				if(m_index >= max_count) 
-				{
-					return false;
-				}
-				m_value[m_index++] = value;
-				return true;
-			}
-			else
-			{ //lock-free
-				if (m_indval & 0xffffffff)
-					return false;
-				else
-				{
-					const u64 new_value = ((u64)value << 32) | 1;
-					m_indval = new_value;
-					return true;
-				}
-			}
-		}
-
-		__forceinline void PushUncond(u32 value)
-		{
-			if (max_count > 1 || x86)
-			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				if(m_index >= max_count) 
-					m_value[max_count-1] = value; //last message is overwritten
-				else
-					m_value[m_index++] = value;
-			}
-			else
-			{ //lock-free
-				const u64 new_value = ((u64)value << 32) | 1;
-				m_indval = new_value;
-			}
-		}
-
-		__forceinline void PushUncond_OR(u32 value)
-		{
-			if (max_count > 1 || x86)
-			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				if(m_index >= max_count) 
-					m_value[max_count-1] |= value; //last message is logically ORed
-				else
-					m_value[m_index++] = value;
-			}
-			else
-			{
-#ifdef _M_X64
-				InterlockedOr64((volatile __int64*)m_indval, ((u64)value << 32) | 1);
-#else
-				ConLog.Error("PushUncond_OR(): no code compiled");
-#endif
-			}
+			m_push = 0;
+			m_pop = 0;
 		}
 
 		__forceinline void PopUncond(u32& res)
 		{
-			if (max_count > 1 || x86)
-			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				if(!m_index) 
-					res = 0; //result is undefined
-				else
-				{
-					res = m_value[--m_index];
-					m_value[m_index] = 0;
-				}
-			}
-			else
-			{ //lock-free
-				if(!m_index)
-					res = 0;
-				else
-				{
-					res = (m_indval >> 32);
-					m_indval = 0;
-				}
-			}
+			res = m_data[m_pop].read_relaxed().value;
+			m_data[m_pop].write_relaxed({});
+			m_pop = (m_pop + 1) % max_count;
 		}
 
-		__forceinline u32 GetCount()
+		__forceinline bool Pop(u32& res)
 		{
-			if (max_count > 1 || x86)
+			const auto data = m_data[m_pop].read_relaxed();
+			if (data.is_set)
 			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				return m_index;
+				res = data.value;
+				m_data[m_pop].write_relaxed({});
+				m_pop = (m_pop + 1) % max_count;
+				return true;
 			}
 			else
 			{
-				return m_index;
+				return false;
 			}
 		}
 
-		__forceinline u32 GetFreeCount()
+		__forceinline bool Pop_XCHG(u32& res) // not barrier-free, not tested
 		{
-			if (max_count > 1 || x86)
+			const auto data = m_data[m_pop].exchange({});
+			if (data.is_set)
 			{
-				std::lock_guard<std::mutex> lock(m_lock);
-				return max_count - m_index;
+				res = data.value;
+				m_pop = (m_pop + 1) % max_count;
+				return true;
 			}
 			else
 			{
-				return max_count - m_index;
+				return false;
 			}
 		}
 
-		void SetValue(u32 value)
+		__forceinline void PushUncond_OR(const u32 value) // not barrier-free, not tested
 		{
-			m_value[0] = value;
+			m_data[m_push]._or({ value, 1 });
+			m_push = (m_push + 1) % max_count;
 		}
 
-		u32 GetValue() const
+		__forceinline void PushUncond(const u32 value)
 		{
-			return m_value[0];
+			m_data[m_push].write_relaxed({ value, 1 });
+			m_push = (m_push + 1) % max_count;
+		}
+
+		__forceinline bool Push(const u32 value)
+		{
+			if (m_data[m_push].read_relaxed().is_set)
+			{
+				return false;
+			}
+			else
+			{
+				PushUncond(value);
+				return true;
+			}
+		}
+
+		__forceinline u32 GetCount() const
+		{
+			u32 res = 0;
+			for (size_t i = 0; i < max_count; i++)
+			{
+				res += m_data[i].read_relaxed().is_set ? 1 : 0;
+			}
+			return res;
+		}
+
+		__forceinline u32 GetFreeCount() const
+		{
+			u32 res = 0;
+			for (size_t i = 0; i < max_count; i++)
+			{
+				res += m_data[i].read_relaxed().is_set ? 0 : 1;
+			}
+			return res;
+		}
+
+		__forceinline void SetValue(const u32 value)
+		{
+			m_data[m_push].direct_op([value](ChannelData& v)
+			{
+				v.value = value;
+			});
+		}
+
+		__forceinline u32 GetValue() const
+		{
+			return m_data[m_pop].read_relaxed().value;
 		}
 	};
 
@@ -473,27 +438,39 @@ public:
 		Channel<1> EAL;
 		Channel<1> Size_Tag;
 		Channel<1> CMDStatus;
-		Channel<1> QStatus;
-	} MFC1, MFC2;
-
-	struct
-	{
-		Channel<1> QueryType;
+		Channel<1> QueryType; // only for prxy
 		Channel<1> QueryMask;
 		Channel<1> TagStatus;
 		Channel<1> AtomicStat;
-	} Prxy;
+	} MFC1, MFC2;
+
+	struct StalledList
+	{
+		u32 lsa;
+		u64 ea;
+		u16 tag;
+		u16 size;
+		u32 cmd;
+		MFCReg* MFCArgs;
+
+		StalledList()
+			: MFCArgs(nullptr)
+		{
+		}
+	} StallList[32];
+	Channel<1> StallStat;
 
 	struct
 	{
 		Channel<1> Out_MBox;
+		Channel<1> Out_IntrMBox;
 		Channel<4> In_MBox;
-		Channel<1> MBox_Status;
-		Channel<1> RunCntl;
 		Channel<1> Status;
 		Channel<1> NPC;
 		Channel<1> SNR[2];
 	} SPU;
+
+	void WriteSNR(bool number, u32 value);
 
 	u32 LSA;
 
@@ -503,351 +480,85 @@ public:
 		struct { u32 EAH, EAL; };
 	};
 
-	DMAC dmac;
+	u32 ls_offset;
 
-	void EnqMfcCmd(MFCReg& MFCArgs)
-	{
-		u32 cmd = MFCArgs.CMDStatus.GetValue();
-		u16 op = cmd & MFC_MASK_CMD;
+	void ProcessCmd(u32 cmd, u32 tag, u32 lsa, u64 ea, u32 size);
 
-		u32 lsa = MFCArgs.LSA.GetValue();
-		u64 ea = (u64)MFCArgs.EAL.GetValue() | ((u64)MFCArgs.EAH.GetValue() << 32);
-		u32 size_tag = MFCArgs.Size_Tag.GetValue();
-		u16 tag = (u16)size_tag;
-		u16 size = size_tag >> 16;
+	void ListCmd(u32 lsa, u64 ea, u16 tag, u16 size, u32 cmd, MFCReg& MFCArgs);
 
-		switch(op & ~(MFC_BARRIER_MASK | MFC_FENCE_MASK))
-		{
-		case MFC_PUT_CMD:
-		case MFC_GET_CMD:
-		{
-			if (Ini.HLELogging.GetValue()) ConLog.Write("DMA %s%s%s: lsa = 0x%x, ea = 0x%llx, tag = 0x%x, size = 0x%x, cmd = 0x%x", 
-				wxString(op & MFC_PUT_CMD ? "PUT" : "GET").wx_str(), 
-				wxString(op & MFC_BARRIER_MASK ? "B" : "").wx_str(),
-				wxString(op & MFC_FENCE_MASK ? "F" : "").wx_str(),
-				lsa, ea, tag, size, cmd);
-			if (op & MFC_PUT_CMD)
-			{
-				SMutexLocker lock(reservation.mutex);
-				MFCArgs.CMDStatus.SetValue(dmac.Cmd(cmd, tag, lsa, ea, size));
-				if ((reservation.addr + reservation.size > ea && reservation.addr <= ea + size) || 
-					(ea + size > reservation.addr && ea <= reservation.addr + reservation.size))
-				{
-					reservation.clear();
-				}
-			}
-			else
-			{
-				MFCArgs.CMDStatus.SetValue(dmac.Cmd(cmd, tag, lsa, ea, size));
-			}
-		}
-		break;
+	void EnqMfcCmd(MFCReg& MFCArgs);
 
-		case MFC_GETLLAR_CMD:
-		case MFC_PUTLLC_CMD:
-		case MFC_PUTLLUC_CMD:
-		case MFC_PUTQLLUC_CMD:
-		{
-			if (Ini.HLELogging.GetValue()) ConLog.Write("DMA %s: lsa=0x%x, ea = 0x%llx, (tag) = 0x%x, (size) = 0x%x, cmd = 0x%x",
-				wxString(op == MFC_GETLLAR_CMD ? "GETLLAR" :
-				op == MFC_PUTLLC_CMD ? "PUTLLC" :
-				op == MFC_PUTLLUC_CMD ? "PUTLLUC" : "PUTQLLUC").wx_str(),
-				lsa, ea, tag, size, cmd);
+	bool CheckEvents();
 
-			if (op == MFC_GETLLAR_CMD) // get reservation
-			{
-				SMutexLocker lock(reservation.mutex);
-				reservation.owner = lock.tid;
-				reservation.addr = ea;
-				reservation.size = 128;
-				dmac.ProcessCmd(MFC_GET_CMD, tag, lsa, ea, 128);
-				Prxy.AtomicStat.PushUncond(MFC_GETLLAR_SUCCESS);
-			}
-			else if (op == MFC_PUTLLC_CMD) // store conditional
-			{
-				SMutexLocker lock(reservation.mutex);
-				if (reservation.owner == lock.tid) // succeeded
-				{
-					if (reservation.addr == ea && reservation.size == 128)
-					{
-						dmac.ProcessCmd(MFC_PUT_CMD, tag, lsa, ea, 128);
-						Prxy.AtomicStat.PushUncond(MFC_PUTLLC_SUCCESS);
-					}
-					else
-					{
-						Prxy.AtomicStat.PushUncond(MFC_PUTLLC_FAILURE);
-					}
-					reservation.clear();
-				}
-				else // failed
-				{
-					Prxy.AtomicStat.PushUncond(MFC_PUTLLC_FAILURE);
-				}
-			}
-			else // store unconditional
-			{
-				SMutexLocker lock(reservation.mutex);
-				dmac.ProcessCmd(MFC_PUT_CMD, tag, lsa, ea, 128);
-				if (op == MFC_PUTLLUC_CMD)
-				{
-					Prxy.AtomicStat.PushUncond(MFC_PUTLLUC_SUCCESS);
-				}
-				if ((reservation.addr + reservation.size > ea && reservation.addr <= ea + size) || 
-					(ea + size > reservation.addr && ea <= reservation.addr + reservation.size))
-				{
-					reservation.clear();
-				}
-			}
-		}
-		break;
+	u32 GetChannelCount(u32 ch);
 
-		default:
-			ConLog.Error("Unknown MFC cmd. (opcode=0x%x, cmd=0x%x, lsa = 0x%x, ea = 0x%llx, tag = 0x%x, size = 0x%x)", 
-				op, cmd, lsa, ea, tag, size);
-		break;
-		}
-	}
+	void WriteChannel(u32 ch, const u128& r);
 
-	u32 GetChannelCount(u32 ch)
-	{
-		u32 count;
-		switch(ch)
-		{
-		case SPU_WrOutMbox:
-			return SPU.Out_MBox.GetFreeCount();
+	void ReadChannel(u128& r, u32 ch);
 
-		case SPU_RdInMbox:
-			count = SPU.In_MBox.GetCount();
-			//ConLog.Warning("GetChannelCount(%s) -> %d", wxString(spu_ch_name[ch]).wx_str(), count);
-			return count;
+	void StopAndSignal(u32 code);
 
-		case SPU_WrOutIntrMbox:
-			ConLog.Warning("GetChannelCount(%s) = 0", wxString(spu_ch_name[ch]).wx_str());
-			return 0;
+	u8   ReadLS8  (const u32 lsa) const { return vm::read8  (lsa + m_offset); }
+	u16  ReadLS16 (const u32 lsa) const { return vm::read16 (lsa + m_offset); }
+	u32  ReadLS32 (const u32 lsa) const { return vm::read32 (lsa + m_offset); }
+	u64  ReadLS64 (const u32 lsa) const { return vm::read64 (lsa + m_offset); }
+	u128 ReadLS128(const u32 lsa) const { return vm::read128(lsa + m_offset); }
 
-		case MFC_RdTagStat:
-			return Prxy.TagStatus.GetCount();
+	void WriteLS8  (const u32 lsa, const u8&   data) const { vm::write8  (lsa + m_offset, data); }
+	void WriteLS16 (const u32 lsa, const u16&  data) const { vm::write16 (lsa + m_offset, data); }
+	void WriteLS32 (const u32 lsa, const u32&  data) const { vm::write32 (lsa + m_offset, data); }
+	void WriteLS64 (const u32 lsa, const u64&  data) const { vm::write64 (lsa + m_offset, data); }
+	void WriteLS128(const u32 lsa, const u128& data) const { vm::write128(lsa + m_offset, data); }
 
-		case MFC_WrTagUpdate:
-			return Prxy.TagStatus.GetCount(); // hack
-
-		case SPU_RdSigNotify1:
-			return SPU.SNR[0].GetCount();
-
-		case SPU_RdSigNotify2:
-			return SPU.SNR[1].GetCount();
-
-		case MFC_RdAtomicStat:
-			return Prxy.AtomicStat.GetCount();
-
-		default:
-			ConLog.Error("%s error: unknown/illegal channel (%d [%s]).",
-				wxString(__FUNCTION__).wx_str(), ch, wxString(spu_ch_name[ch]).wx_str());
-		break;
-		}
-
-		return 0;
-	}
-
-	void WriteChannel(u32 ch, const SPU_GPR_hdr& r)
-	{
-		const u32 v = r._u32[3];
-
-		switch(ch)
-		{
-		case SPU_WrOutIntrMbox:
-			{
-				u8 code = v >> 24;
-				if (code < 64) 
-				{
-					/* ===== sys_spu_thread_send_event ===== */
-
-					u8 spup = code & 63;
-
-					u32 data;
-					if (!SPU.Out_MBox.Pop(data))
-					{
-						ConLog.Error("sys_spu_thread_send_event(v=0x%x, spup=%d): Out_MBox is empty", v, spup);
-						return;
-					}
-
-					if (SPU.In_MBox.GetCount())
-					{
-						ConLog.Error("sys_spu_thread_send_event(v=0x%x, spup=%d): In_MBox is not empty", v, spup);
-						SPU.In_MBox.PushUncond(CELL_EBUSY); // ???
-						return;
-					}
-
-					if (Ini.HLELogging.GetValue())
-					{
-						ConLog.Write("sys_spu_thread_send_event(spup=%d, data0=0x%x, data1=0x%x)", spup, v & 0x00ffffff, data);
-					}
-
-					EventPort& port = SPUPs[spup];
-
-					SMutexLocker lock(port.mutex);
-
-					if (!port.eq)
-					{
-						SPU.In_MBox.PushUncond(CELL_ENOTCONN); // check error passing
-						return;
-					}
-
-					if (!port.eq->events.push(SYS_SPU_THREAD_EVENT_USER_KEY, lock.tid, ((u64)code << 32) | (v & 0x00ffffff), data))
-					{
-						SPU.In_MBox.PushUncond(CELL_EBUSY);
-						return;
-					}
-
-					SPU.In_MBox.PushUncond(CELL_OK);
-					return;
-				}
-				else
-				{
-					ConLog.Error("SPU_WrOutIntrMbox: unknown data (v=0x%x)", v);
-					SPU.In_MBox.PushUncond(CELL_EINVAL); // ???
-					return;
-				}
-			}
-		break;
-
-		case SPU_WrOutMbox:
-			//ConLog.Warning("%s: %s = 0x%x", wxString(__FUNCTION__).wx_str(), wxString(spu_ch_name[ch]).wx_str(), v);
-			while (!SPU.Out_MBox.Push(v) && !Emu.IsStopped()) Sleep(1);
-		break;
-
-		case MFC_WrTagMask:
-			//ConLog.Warning("%s: %s = 0x%x", wxString(__FUNCTION__).wx_str(), wxString(spu_ch_name[ch]).wx_str(), v);
-			Prxy.QueryMask.SetValue(v);
-		break;
-
-		case MFC_WrTagUpdate:
-			//ConLog.Warning("%s: %s = 0x%x", wxString(__FUNCTION__).wx_str(), wxString(spu_ch_name[ch]).wx_str(), v);
-			Prxy.TagStatus.PushUncond(Prxy.QueryMask.GetValue());
-		break;
-
-		case MFC_LSA:
-			MFC1.LSA.SetValue(v);
-		break;
-
-		case MFC_EAH:
-			MFC1.EAH.SetValue(v);
-		break;
-
-		case MFC_EAL:
-			MFC1.EAL.SetValue(v);
-		break;
-
-		case MFC_Size:
-			MFC1.Size_Tag.SetValue((MFC1.Size_Tag.GetValue() & 0xffff) | (v << 16));
-		break;
-
-		case MFC_TagID:
-			MFC1.Size_Tag.SetValue((MFC1.Size_Tag.GetValue() & ~0xffff) | (v & 0xffff));
-		break;
-
-		case MFC_Cmd:
-			MFC1.CMDStatus.SetValue(v);
-			EnqMfcCmd(MFC1);
-		break;
-
-		default:
-			ConLog.Error("%s error: unknown/illegal channel (%d [%s]).", wxString(__FUNCTION__).wx_str(), ch, wxString(spu_ch_name[ch]).wx_str());
-		break;
-		}
-
-		if (Emu.IsStopped()) ConLog.Warning("%s(%s) aborted", wxString(__FUNCTION__).wx_str(), wxString(spu_ch_name[ch]).wx_str());
-	}
-
-	void ReadChannel(SPU_GPR_hdr& r, u32 ch)
-	{
-		r.Reset();
-		u32& v = r._u32[3];
-
-		switch(ch)
-		{
-		case SPU_RdInMbox:
-			while (!SPU.In_MBox.Pop(v) && !Emu.IsStopped()) Sleep(1);
-			//ConLog.Warning("%s: 0x%x = %s", wxString(__FUNCTION__).wx_str(), v, wxString(spu_ch_name[ch]).wx_str());
-		break;
-
-		case MFC_RdTagStat:
-			while (!Prxy.TagStatus.Pop(v) && !Emu.IsStopped()) Sleep(1);
-			//ConLog.Warning("%s: 0x%x = %s", wxString(__FUNCTION__).wx_str(), v, wxString(spu_ch_name[ch]).wx_str());
-		break;
-
-		case SPU_RdSigNotify1:
-			while (!SPU.SNR[0].Pop(v) && !Emu.IsStopped()) Sleep(1);
-			//ConLog.Warning("%s: 0x%x = %s", wxString(__FUNCTION__).wx_str(), v, wxString(spu_ch_name[ch]).wx_str());
-		break;
-
-		case SPU_RdSigNotify2:
-			while (!SPU.SNR[1].Pop(v) && !Emu.IsStopped()) Sleep(1);
-			//ConLog.Warning("%s: 0x%x = %s", wxString(__FUNCTION__).wx_str(), v, wxString(spu_ch_name[ch]).wx_str());
-		break;
-
-		case MFC_RdAtomicStat:
-			while (!Prxy.AtomicStat.Pop(v) && !Emu.IsStopped()) Sleep(1);
-		break;
-
-		default:
-			ConLog.Error("%s error: unknown/illegal channel (%d [%s]).", wxString(__FUNCTION__).wx_str(), ch, wxString(spu_ch_name[ch]).wx_str());
-		break;
-		}
-
-		if (Emu.IsStopped()) ConLog.Warning("%s(%s) aborted", wxString(__FUNCTION__).wx_str(), wxString(spu_ch_name[ch]).wx_str());
-	}
-
-	bool IsGoodLSA(const u32 lsa) const { return Memory.IsGoodAddr(lsa + m_offset) && lsa < 0x40000; }
-	virtual u8   ReadLS8  (const u32 lsa) const { return Memory.Read8  (lsa + m_offset); } // m_offset & 0x3fffc ?????
-	virtual u16  ReadLS16 (const u32 lsa) const { return Memory.Read16 (lsa + m_offset); }
-	virtual u32  ReadLS32 (const u32 lsa) const { return Memory.Read32 (lsa + m_offset); }
-	virtual u64  ReadLS64 (const u32 lsa) const { return Memory.Read64 (lsa + m_offset); }
-	virtual u128 ReadLS128(const u32 lsa) const { return Memory.Read128(lsa + m_offset); }
-
-	virtual void WriteLS8  (const u32 lsa, const u8&   data) const { Memory.Write8  (lsa + m_offset, data); }
-	virtual void WriteLS16 (const u32 lsa, const u16&  data) const { Memory.Write16 (lsa + m_offset, data); }
-	virtual void WriteLS32 (const u32 lsa, const u32&  data) const { Memory.Write32 (lsa + m_offset, data); }
-	virtual void WriteLS64 (const u32 lsa, const u64&  data) const { Memory.Write64 (lsa + m_offset, data); }
-	virtual void WriteLS128(const u32 lsa, const u128& data) const { Memory.Write128(lsa + m_offset, data); }
+	std::function<void(SPUThread& SPU)> m_custom_task;
+	std::function<u64(SPUThread& SPU)> m_code3_func;
 
 public:
 	SPUThread(CPUThreadType type = CPU_THREAD_SPU);
 	virtual ~SPUThread();
 
-	virtual wxString RegsToString()
+	virtual std::string RegsToString()
 	{
-		wxString ret = "Registers:\n=========\n";
+		std::string ret = "Registers:\n=========\n";
 
-		for(uint i=0; i<128; ++i) ret += wxString::Format("GPR[%d] = 0x%s\n", i, GPR[i].ToString().wx_str());
+		for(uint i=0; i<128; ++i) ret += fmt::Format("GPR[%d] = 0x%s\n", i, GPR[i].to_hex().c_str());
 
 		return ret;
 	}
 
-	virtual wxString ReadRegString(wxString reg)
+	virtual std::string ReadRegString(const std::string& reg)
 	{
-		if (reg.Contains("["))
+		std::string::size_type first_brk = reg.find('[');
+		if (first_brk != std::string::npos)
 		{
 			long reg_index;
-			reg.AfterFirst('[').RemoveLast().ToLong(&reg_index);
-			if (reg.StartsWith("GPR")) return wxString::Format("%016llx%016llx",  GPR[reg_index]._u64[1], GPR[reg_index]._u64[0]);
+			reg_index = atol(reg.substr(first_brk + 1, reg.length()-2).c_str());
+			if (reg.find("GPR")==0) return fmt::Format("%016llx%016llx",  GPR[reg_index]._u64[1], GPR[reg_index]._u64[0]);
 		}
-		return wxEmptyString;
+		return "";
 	}
 
-	bool WriteRegString(wxString reg, wxString value)
+	bool WriteRegString(const std::string& reg, std::string value)
 	{
-		while (value.Len() < 32) value = "0"+value;
-		if (reg.Contains("["))
+		while (value.length() < 32) value = "0"+value;
+		std::string::size_type first_brk = reg.find('[');
+		if (first_brk != std::string::npos)
 		{
 			long reg_index;
-			reg.AfterFirst('[').RemoveLast().ToLong(&reg_index);
-			if (reg.StartsWith("GPR"))
+			reg_index = atol(reg.substr(first_brk + 1, reg.length() - 2).c_str());
+			if (reg.find("GPR")==0)
 			{
 				unsigned long long reg_value0;
 				unsigned long long reg_value1;
-				if (!value.SubString(16,31).ToULongLong(&reg_value0, 16)) return false;
-				if (!value.SubString(0,15).ToULongLong(&reg_value1, 16)) return false;
+				try
+				{
+					reg_value0 = std::stoull(value.substr(16, 31), 0, 16);
+					reg_value1 = std::stoull(value.substr(0, 15), 0, 16);
+				}
+				catch (std::invalid_argument& /*e*/)
+				{
+					return false;
+				}
 				GPR[reg_index]._u64[0] = (u64)reg_value0;
 				GPR[reg_index]._u64[1] = (u64)reg_value1;
 				return true;
@@ -858,7 +569,9 @@ public:
 
 public:
 	virtual void InitRegs();
-	virtual u64 GetFreeStackSize() const;
+	virtual void Task();
+	void FastCall(u32 ls_addr);
+	void FastStop();
 
 protected:
 	virtual void DoReset();
@@ -870,3 +583,49 @@ protected:
 };
 
 SPUThread& GetCurrentSPUThread();
+
+class spu_thread : cpu_thread
+{
+	static const u32 stack_align = 0x10;
+	vm::ptr<u64> argv;
+	u32 argc;
+	vm::ptr<u64> envp;
+
+public:
+	spu_thread(u32 entry, const std::string& name = "", u32 stack_size = 0, u32 prio = 0);
+
+	cpu_thread& args(std::initializer_list<std::string> values) override
+	{
+		if (!values.size())
+			return *this;
+
+		assert(argc == 0);
+
+		envp.set(Memory.MainMem.AllocAlign((u32)sizeof(envp), stack_align));
+		*envp = 0;
+		argv.set(Memory.MainMem.AllocAlign(u32(sizeof(argv)* values.size()), stack_align));
+
+		for (auto &arg : values)
+		{
+			u32 arg_size = align(u32(arg.size() + 1), stack_align);
+			u32 arg_addr = Memory.MainMem.AllocAlign(arg_size, stack_align);
+
+			std::strcpy(vm::get_ptr<char>(arg_addr), arg.c_str());
+
+			argv[argc++] = arg_addr;
+		}
+
+		return *this;
+	}
+
+	cpu_thread& run() override
+	{
+		thread->Run();
+
+		static_cast<SPUThread*>(thread)->GPR[3].from64(argc);
+		static_cast<SPUThread*>(thread)->GPR[4].from64(argv.addr());
+		static_cast<SPUThread*>(thread)->GPR[5].from64(envp.addr());
+
+		return *this;
+	}
+};

@@ -1,26 +1,141 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#include "Emu/Memory/Memory.h"
+#include "Emu/SysCalls/Modules.h"
 
-void sys_net_init();
-Module sys_net((u16)0x0000, sys_net_init);
-
-int accept()
+#ifdef _WIN32
+#include <winsock.h>
+#else
+extern "C"
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+}
+#endif
+
+#include "sys_net.h"
+
+Module *sys_net = nullptr;
+
+vm::ptr<s32> g_lastError = vm::ptr<s32>::make(0);
+
+
+// Auxiliary Functions
+int inet_pton4(const char *src, char *dst)
+{
+	const char digits[] = "0123456789";
+	int saw_digit, octets, ch;
+	unsigned char tmp[4], *tp;
+
+	saw_digit = 0;
+	octets = 0;
+	*(tp = tmp) = 0;
+	while ((ch = *src++) != '\0') {
+		const char *pch;
+
+		if ((pch = strchr(digits, ch)) != NULL) {
+			unsigned int n = *tp * 10 + (pch - digits);
+
+			if (n > 255)
+				return (0);
+			*tp = n;
+			if (! saw_digit) {
+				if (++octets > 4)
+					return (0);
+				saw_digit = 1;
+			}
+		} else if (ch == '.' && saw_digit) {
+			if (octets == 4)
+				return 0;
+			*++tp = 0;
+			saw_digit = 0;
+		} else
+			return (0);
+	}
+	if (octets < 4)
+		return 0;
+
+	memcpy(dst, tmp, 4);
+	return 1;
 }
 
-int bind()
+int inet_pton(int af, const char *src, char *dst)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	switch (af) {
+	case AF_INET:
+		return (inet_pton4(src, dst));
+
+	default:
+		errno = EAFNOSUPPORT;
+		return -1;
+	}
 }
 
-int connect()
+s32 getLastError()
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+#ifdef _WIN32
+	s32 ret = WSAGetLastError();
+	if (ret > 10000 && ret < 11000)
+		return ret % 10000;
+	else
+		return -1;
+#else
+	return errno;
+#endif
+}
+#ifdef _WIN32
+using pck_len_t = s32;
+#else
+using pck_len_t = u32;
+#endif
+
+// Functions
+int sys_net_accept(s32 s, vm::ptr<sys_net_sockaddr> addr, vm::ptr<pck_len_t> paddrlen)
+{
+	sys_net->Warning("accept(s=%d, family_addr=0x%x, paddrlen=0x%x)", s, addr.addr(), paddrlen.addr());
+	if (!addr) {
+		int ret = accept(s, nullptr, nullptr);
+		*g_lastError = getLastError();
+		return ret;
+	}
+	else {
+		sockaddr _addr;
+		memcpy(&_addr, addr.get_ptr(), sizeof(sockaddr));
+		_addr.sa_family = addr->sa_family;
+		pck_len_t _paddrlen;
+		int ret = accept(s, &_addr, &_paddrlen);
+		*paddrlen = _paddrlen;
+		*g_lastError = getLastError();
+		return ret;
+	}
+}
+
+int sys_net_bind(s32 s, vm::ptr<sys_net_sockaddr_in> addr, u32 addrlen)
+{
+	sys_net->Warning("bind(s=%d, family_addr=0x%x, addrlen=%u)", s, addr.addr(), addrlen);
+	sockaddr_in saddr;
+	memcpy(&saddr, addr.get_ptr(), sizeof(sockaddr_in));
+	saddr.sin_family = addr->sin_family;
+	const char *ipaddr = inet_ntoa(saddr.sin_addr);
+	sys_net->Warning("binding on %s to port %d", ipaddr, ntohs(saddr.sin_port));
+	int ret = bind(s, (const sockaddr *)&saddr, addrlen);
+	*g_lastError = getLastError();
+	return ret;
+}
+
+int sys_net_connect(s32 s, vm::ptr<sys_net_sockaddr_in> addr, u32 addrlen)
+{
+	sys_net->Warning("connect(s=%d, family_addr=0x%x, addrlen=%u)", s, addr.addr(), addrlen);
+	sockaddr_in saddr;
+	memcpy(&saddr, addr.get_ptr(), sizeof(sockaddr_in));
+	saddr.sin_family = addr->sin_family;
+	const char *ipaddr = inet_ntoa(saddr.sin_addr);
+	sys_net->Warning("connecting on %s to port %d", ipaddr, ntohs(saddr.sin_port));
+	int ret = connect(s, (const sockaddr *) &saddr, addrlen);
+	*g_lastError = getLastError();
+	return ret;
 }
 
 int gethostbyaddr()
@@ -53,10 +168,10 @@ int getsockopt()
 	return CELL_OK;
 }
 
-int inet_addr()
+int sys_net_inet_addr(vm::ptr<const char> cp)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("inet_addr(cp_addr=0x%x['%s'])", cp.addr(), cp.get_ptr());
+	return htonl(inet_addr(cp.get_ptr())); // return a big-endian IP address
 }
 
 int inet_aton()
@@ -101,28 +216,43 @@ int inet_ntop()
 	return CELL_OK;
 }
 
-int inet_pton()
+int sys_net_inet_pton(s32 af, vm::ptr<const char> src, vm::ptr<char> dst)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("inet_pton(af=%d, src_addr=0x%x, dst_addr=0x%x)", af, src.addr(), dst.addr());
+
+	return inet_pton(af, src.get_ptr(), dst.get_ptr());
 }
 
-int listen()
+int sys_net_listen(s32 s, s32 backlog)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("listen(s=%d, backlog=%d)", s, backlog);
+	int ret = listen(s, backlog);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int recv()
+int sys_net_recv(s32 s, vm::ptr<char> buf, u32 len, s32 flags)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("recv(s=%d, buf_addr=0x%x, len=%d, flags=0x%x)", s, buf.addr(), len, flags);
+
+	int ret = recv(s, buf.get_ptr(), len, flags);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int recvfrom()
+int sys_net_recvfrom(s32 s, vm::ptr<char> buf, u32 len, s32 flags, vm::ptr<sys_net_sockaddr> addr, vm::ptr<pck_len_t> paddrlen)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("recvfrom(s=%d, buf_addr=0x%x, len=%u, flags=0x%x, addr_addr=0x%x, paddrlen=0x%x)",
+		s, buf.addr(), len, flags, addr.addr(), paddrlen.addr());
+
+	sockaddr _addr;
+	memcpy(&_addr, addr.get_ptr(), sizeof(sockaddr));
+	_addr.sa_family = addr->sa_family;
+	pck_len_t _paddrlen;
+	int ret = recvfrom(s, buf.get_ptr(), len, flags, &_addr, &_paddrlen);
+	*paddrlen = _paddrlen;
+	*g_lastError = getLastError();
+	return ret;
 }
 
 int recvmsg()
@@ -131,10 +261,13 @@ int recvmsg()
 	return CELL_OK;
 }
 
-int send()
+int sys_net_send(s32 s, vm::ptr<const char> buf, u32 len, s32 flags)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("send(s=%d, buf_addr=0x%x, len=%d, flags=0x%x)", s, buf.addr(), len, flags);
+
+	int ret = send(s, buf.get_ptr(), len, flags);
+	*g_lastError = getLastError();
+	return ret;
 }
 
 int sendmsg()
@@ -143,34 +276,54 @@ int sendmsg()
 	return CELL_OK;
 }
 
-int sendto()
+int sys_net_sendto(s32 s, vm::ptr<const char> buf, u32 len, s32 flags, vm::ptr<sys_net_sockaddr> addr, u32 addrlen)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("sendto(s=%d, buf_addr=0x%x, len=%u, flags=0x%x, addr=0x%x, addrlen=%u)",
+		s, buf.addr(), len, flags, addr.addr(), addrlen);
+
+	sockaddr _addr;
+	memcpy(&_addr, addr.get_ptr(), sizeof(sockaddr));
+	_addr.sa_family = addr->sa_family;
+	int ret = sendto(s, buf.get_ptr(), len, flags, &_addr, addrlen);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int setsockopt()
+int sys_net_setsockopt(s32 s, s32 level, s32 optname, vm::ptr<const char> optval, u32 optlen)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("socket(s=%d, level=%d, optname=%d, optval_addr=0x%x, optlen=%u)", s, level, optname, optval.addr(), optlen);
+
+	int ret = setsockopt(s, level, optname, optval.get_ptr(), optlen);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int shutdown()
+int sys_net_shutdown(s32 s, s32 how)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("shutdown(s=%d, how=%d)", s, how);
+	int ret = shutdown(s, how);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int socket()
+int sys_net_socket(s32 family, s32 type, s32 protocol)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("socket(family=%d, type=%d, protocol=%d)", family, type, protocol);
+	int ret = socket(family, type, protocol);
+	*g_lastError = getLastError();
+	return ret;
 }
 
-int socketclose()
+int sys_net_socketclose(s32 s)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("socket(s=%d)", s);
+#ifdef _WIN32
+	int ret = closesocket(s);
+#else
+	int ret = close(s);
+#endif
+	*g_lastError = getLastError();
+	return ret;
 }
 
 int socketpoll()
@@ -185,9 +338,15 @@ int socketselect()
 	return CELL_OK;
 }
 
-int sys_net_initialize_network_ex()
+int sys_net_initialize_network_ex(vm::ptr<sys_net_initialize_parameter> param)
 {
-	UNIMPLEMENTED_FUNC(sys_net);
+	sys_net->Warning("sys_net_initialize_network_ex(param_addr=0x%x)", param.addr());
+	g_lastError = vm::ptr<s32>::make((u32)Memory.Alloc(4, 1));
+#ifdef _WIN32
+	WSADATA wsaData;
+	WORD wVersionRequested = MAKEWORD(1,1);
+	WSAStartup(wVersionRequested, &wsaData);
+#endif
 	return CELL_OK;
 }
 
@@ -245,10 +404,10 @@ int sys_net_show_nameserver()
 	return CELL_OK;
 }
 
-int _sys_net_errno_loc()
+u32 _sys_net_errno_loc()
 {
-	UNIMPLEMENTED_FUNC(sys_net);
-	return CELL_OK;
+	sys_net->Warning("_sys_net_errno_loc()");
+	return g_lastError.addr();
 }
 
 int sys_net_set_resolver_configurations()
@@ -313,7 +472,12 @@ int sys_net_show_ifconfig()
 
 int sys_net_finalize_network()
 {
-	UNIMPLEMENTED_FUNC(sys_net);
+	sys_net->Warning("sys_net_initialize_network_ex()");
+	Memory.Free(g_lastError.addr());
+	g_lastError = vm::ptr<s32>::make(0);
+#ifdef _WIN32
+	WSACleanup();
+#endif
 	return CELL_OK;
 }
 
@@ -335,66 +499,67 @@ int sys_net_free_thread_context()
 	return CELL_OK;
 }
 
-void sys_net_init()
+void sys_net_init(Module *pxThis)
 {
-	// (TODO: Fix function overloading problem due to winsock.h and find addresses for ntohl and ntohs)
+	sys_net = pxThis;
 
-	//sys_net.AddFunc(0xc94f6939, accept);
-	//sys_net.AddFunc(0xb0a59804, bind);
-	//sys_net.AddFunc(0x64f66d35, connect);
-	//sys_net.AddFunc(0xf7ac8941, gethostbyaddr);
-	//sys_net.AddFunc(0x71f4c717, gethostbyname);
-	//sys_net.AddFunc(0xf9ec2db6, getpeername);
-	//sys_net.AddFunc(0x13efe7f5, getsockname);
-	//sys_net.AddFunc(0x5a045bd1, getsockopt);
-	//sys_net.AddFunc(0xdabbc2c0, inet_addr);
-	sys_net.AddFunc(0xa9a079e0, inet_aton);
-	sys_net.AddFunc(0x566893ce, inet_lnaof);
-	sys_net.AddFunc(0xb4152c74, inet_makeaddr);
-	sys_net.AddFunc(0xe39a62a7, inet_netof);
-	sys_net.AddFunc(0x506ad863, inet_network);
-	//sys_net.AddFunc(0x858a930b, inet_ntoa);
-	sys_net.AddFunc(0xc98a3146, inet_ntop);
-	sys_net.AddFunc(0x8af3825e, inet_pton);
-	//sys_net.AddFunc(0x28e208bb, listen);
-	//sys_net.AddFunc(, ntohl);
-	//sys_net.AddFunc(, ntohs);
-	//sys_net.AddFunc(0xfba04f37, recv);
-	//sys_net.AddFunc(0x1f953b9f, recvfrom);
-	sys_net.AddFunc(0xc9d09c34, recvmsg);
-	//sys_net.AddFunc(0xdc751b40, send);
-	sys_net.AddFunc(0xad09481b, sendmsg);
-	//sys_net.AddFunc(0x9647570b, sendto);
-	//sys_net.AddFunc(0x88f03575, setsockopt);
-	//sys_net.AddFunc(0xa50777c6, shutdown);
-	//sys_net.AddFunc(0x9c056962, socket);
-	sys_net.AddFunc(0x6db6e8cd, socketclose);
-	sys_net.AddFunc(0x051ee3ee, socketpoll);
-	sys_net.AddFunc(0x3f09e20a, socketselect);
+	// The names of the following functions are modified to avoid overloading problems
+	sys_net->AddFunc(0xc94f6939, sys_net_accept);
+	sys_net->AddFunc(0xb0a59804, sys_net_bind);
+	sys_net->AddFunc(0x64f66d35, sys_net_connect);
+	//sys_net->AddFunc(0xf7ac8941, sys_net_gethostbyaddr);
+	//sys_net->AddFunc(0x71f4c717, sys_net_gethostbyname);
+	//sys_net->AddFunc(0xf9ec2db6, sys_net_getpeername);
+	//sys_net->AddFunc(0x13efe7f5, sys_net_getsockname);
+	//sys_net->AddFunc(0x5a045bd1, sys_net_getsockopt);
+	sys_net->AddFunc(0xdabbc2c0, sys_net_inet_addr);
+	//sys_net->AddFunc(0xa9a079e0, sys_net_inet_aton);
+	//sys_net->AddFunc(0x566893ce, sys_net_inet_lnaof);
+	//sys_net->AddFunc(0xb4152c74, sys_net_inet_makeaddr);
+	//sys_net->AddFunc(0xe39a62a7, sys_net_inet_netof);
+	//sys_net->AddFunc(0x506ad863, sys_net_inet_network);
+	//sys_net->AddFunc(0x858a930b, sys_net_inet_ntoa);
+	//sys_net->AddFunc(0xc98a3146, sys_net_inet_ntop);
+	sys_net->AddFunc(0x8af3825e, sys_net_inet_pton);
+	sys_net->AddFunc(0x28e208bb, sys_net_listen);
+	//sys_net->AddFunc(, sys_net_ntohl);
+	//sys_net->AddFunc(, sys_net_ntohs);
+	sys_net->AddFunc(0xfba04f37, sys_net_recv);
+	sys_net->AddFunc(0x1f953b9f, sys_net_recvfrom);
+	//sys_net->AddFunc(0xc9d09c34, sys_net_recvmsg);
+	sys_net->AddFunc(0xdc751b40, sys_net_send);
+	//sys_net->AddFunc(0xad09481b, sys_net_sendmsg);
+	sys_net->AddFunc(0x9647570b, sys_net_sendto);
+	sys_net->AddFunc(0x88f03575, sys_net_setsockopt);
+	sys_net->AddFunc(0xa50777c6, sys_net_shutdown);
+	sys_net->AddFunc(0x9c056962, sys_net_socket);
+	sys_net->AddFunc(0x6db6e8cd, sys_net_socketclose);
+	//sys_net->AddFunc(0x051ee3ee, sys_net_socketpoll);
+	//sys_net->AddFunc(0x3f09e20a, sys_net_socketselect);
 
-	sys_net.AddFunc(0x139a9e9b, sys_net_initialize_network_ex);
-	sys_net.AddFunc(0x05bd4438, sys_net_get_udpp2p_test_param);
-	sys_net.AddFunc(0x10b81ed6, sys_net_set_udpp2p_test_param);
-	sys_net.AddFunc(0x1d14d6e4, sys_net_get_lib_name_server);
-	sys_net.AddFunc(0x27fb339d, sys_net_if_ctl);
-	sys_net.AddFunc(0x368823c0, sys_net_get_netemu_test_param);
-	sys_net.AddFunc(0x3b27c780, sys_net_get_sockinfo);
-	sys_net.AddFunc(0x44328aa2, sys_net_close_dump);
-	sys_net.AddFunc(0x4ab0b9b9, sys_net_set_test_param);
-	sys_net.AddFunc(0x5420e419, sys_net_show_nameserver);
-	sys_net.AddFunc(0x6005cde1, _sys_net_errno_loc);
-	sys_net.AddFunc(0x7687d48c, sys_net_set_resolver_configurations);
-	sys_net.AddFunc(0x79b61646, sys_net_show_route);
-	sys_net.AddFunc(0x89c9917c, sys_net_read_dump);
-	sys_net.AddFunc(0x8ccf05ed, sys_net_abort_resolver);
-	sys_net.AddFunc(0x8d1b77fb, sys_net_abort_socket);
-	sys_net.AddFunc(0x9a318259, sys_net_set_lib_name_server);
-	sys_net.AddFunc(0xa5a86557, sys_net_get_test_param);
-	sys_net.AddFunc(0xa765d029, sys_net_get_sockinfo_ex);
-	sys_net.AddFunc(0xab447704, sys_net_open_dump);
-	sys_net.AddFunc(0xb48636c4, sys_net_show_ifconfig);
-	sys_net.AddFunc(0xb68d5625, sys_net_finalize_network);
-	sys_net.AddFunc(0xc9157d30, _sys_net_h_errno_loc);
-	sys_net.AddFunc(0xe2434507, sys_net_set_netemu_test_param);
-	sys_net.AddFunc(0xfdb8f926, sys_net_free_thread_context);
+	sys_net->AddFunc(0x139a9e9b, sys_net_initialize_network_ex);
+	sys_net->AddFunc(0x05bd4438, sys_net_get_udpp2p_test_param);
+	sys_net->AddFunc(0x10b81ed6, sys_net_set_udpp2p_test_param);
+	sys_net->AddFunc(0x1d14d6e4, sys_net_get_lib_name_server);
+	sys_net->AddFunc(0x27fb339d, sys_net_if_ctl);
+	sys_net->AddFunc(0x368823c0, sys_net_get_netemu_test_param);
+	sys_net->AddFunc(0x3b27c780, sys_net_get_sockinfo);
+	sys_net->AddFunc(0x44328aa2, sys_net_close_dump);
+	sys_net->AddFunc(0x4ab0b9b9, sys_net_set_test_param);
+	sys_net->AddFunc(0x5420e419, sys_net_show_nameserver);
+	sys_net->AddFunc(0x6005cde1, _sys_net_errno_loc);
+	sys_net->AddFunc(0x7687d48c, sys_net_set_resolver_configurations);
+	sys_net->AddFunc(0x79b61646, sys_net_show_route);
+	sys_net->AddFunc(0x89c9917c, sys_net_read_dump);
+	sys_net->AddFunc(0x8ccf05ed, sys_net_abort_resolver);
+	sys_net->AddFunc(0x8d1b77fb, sys_net_abort_socket);
+	sys_net->AddFunc(0x9a318259, sys_net_set_lib_name_server);
+	sys_net->AddFunc(0xa5a86557, sys_net_get_test_param);
+	sys_net->AddFunc(0xa765d029, sys_net_get_sockinfo_ex);
+	sys_net->AddFunc(0xab447704, sys_net_open_dump);
+	sys_net->AddFunc(0xb48636c4, sys_net_show_ifconfig);
+	sys_net->AddFunc(0xb68d5625, sys_net_finalize_network);
+	sys_net->AddFunc(0xc9157d30, _sys_net_h_errno_loc);
+	sys_net->AddFunc(0xe2434507, sys_net_set_netemu_test_param);
+	sys_net->AddFunc(0xfdb8f926, sys_net_free_thread_context);
 }

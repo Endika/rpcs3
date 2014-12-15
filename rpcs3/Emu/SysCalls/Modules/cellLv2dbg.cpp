@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellLv2dbg_init();
 Module cellLv2dbg(0x002e, cellLv2dbg_init);
@@ -8,8 +7,8 @@ Module cellLv2dbg(0x002e, cellLv2dbg_init);
 // Return Codes
 enum
 {
-	CELL_LV2DBG_ERROR_DEINVALIDARGUMENTS	= 0x80010409,
-	CELL_LV2DBG_ERROR_DEOPERATIONDENIED		= 0x8001042c,
+	CELL_LV2DBG_ERROR_DEINVALIDARGUMENTS = 0x80010409,
+	CELL_LV2DBG_ERROR_DEOPERATIONDENIED  = 0x8001042c,
 };
 
 int sys_dbg_read_spu_thread_context()
@@ -267,3 +266,4 @@ void cellLv2dbg_init()
 	cellLv2dbg.AddFunc(0xd830062a, sys_dbg_signal_to_coredump_handler);
 	cellLv2dbg.AddFunc(0xb9da87d3, sys_dbg_get_coredump_params);
 }
+#endif

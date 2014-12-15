@@ -5,16 +5,16 @@
 class CPUDecoder
 {
 public:
-	virtual u8 DecodeMemory(const u64 address)=0;
+	virtual u8 DecodeMemory(const u32 address)=0;
+
+	virtual ~CPUDecoder() = default;
 };
 
 template<typename TO>
 class InstrCaller
 {
 public:
-	virtual ~InstrCaller<TO>()
-	{
-	}
+	virtual ~InstrCaller<TO>() = default;
 
 	virtual void operator ()(TO* op, u32 code) const = 0;
 
@@ -308,23 +308,54 @@ template<typename TO>
 class InstrBase : public InstrCaller<TO>
 {
 protected:
-	wxString m_name;
+	std::string m_name;
 	const u32 m_opcode;
 	CodeFieldBase** m_args;
 	const uint m_args_count;
 
 public:
-	InstrBase(const wxString& name, int opcode, uint args_count)
+	InstrBase(const std::string& name, int opcode, uint args_count)
 		: InstrCaller<TO>()
 		, m_name(name)
 		, m_opcode(opcode)
 		, m_args_count(args_count)
 		, m_args(args_count ? new CodeFieldBase*[args_count] : nullptr)
 	{
-		m_name.MakeLower().Replace("_", ".");
+			std::transform(
+				name.begin(),
+				name.end(),
+				m_name.begin(),
+				[](const char &a)
+				{
+					char b = tolower(a);
+					if (b == '_') b = '.';
+					return b;
+				});
 	}
 
-	__forceinline const wxString& GetName() const
+	InstrBase(const InstrBase &source)
+		: InstrCaller<TO>(source)
+		, m_name(source.m_name)
+		, m_opcode(source.m_opcode)
+		, m_args_count(source.m_args_count)
+		, m_args(source.m_args_count ? new CodeFieldBase*[source.m_args_count] : nullptr)
+	{
+		for(uint i = 0; i < source.m_args_count; ++i)
+			m_args[i] = source.m_args[i];
+	}
+
+	virtual ~InstrBase()
+	{
+		if (m_args) {
+			// m_args contains pointers to statically allocated CodeFieldBase objects
+			// We shouldn't call delete on these, they aren't allocated with new
+
+			// The m_args array itself, however, should be deleted
+			delete[] m_args;
+		}
+	}
+
+	__forceinline const std::string& GetName() const
 	{
 		return m_name;
 	}
@@ -345,13 +376,13 @@ public:
 		decode(op, code);
 	}
 
-	u32 operator()(const Array<u32>& args) const
+	u32 operator()(const std::vector<u32>& args) const
 	{
 		return encode(args);
 	}
 
 	virtual void decode(TO* op, u32 code) const=0;
-	virtual u32 encode(const Array<u32>& args) const=0;
+	virtual u32 encode(const std::vector<u32>& args) const=0;
 };
 
 template<int _count, typename TO>
@@ -386,12 +417,54 @@ public:
 
 	virtual ~InstrList()
 	{
-		for(int i=0; i<count; ++i)
+		bool deletedErrorFunc = false;
+
+		// Clean up m_instrs
+		for(int i = 0; i < count; ++i)
 		{
-			delete m_instrs[i];
+			InstrCaller<TO>* deleteMe = m_instrs[i];
+
+			if (deleteMe) { // deleteMe will be a nullptr if we've already deleted it through another reference
+				// Remove any instances of pointers to this instruction caller from our m_instrs list
+				m_instrs[i] = nullptr;
+				for (int j = i + 1; j < count; j++) {
+					if (m_instrs[j] == deleteMe) {
+						m_instrs[j] = nullptr;
+					}
+				}
+
+				// If we're deleting the error handler here, remember it so we don't try to delete it again later
+				if (deleteMe == m_error_func) {
+					deletedErrorFunc = true;
+				}
+
+				// Delete the instruction caller
+				delete deleteMe;
+			}
 		}
 
-		delete m_error_func;
+		// Clean up m_instrs_info
+		for (int i = 0; i < count; ++i)
+		{
+			InstrBase<TO>* deleteMe = m_instrs_info[i];
+
+			if (deleteMe) {
+				m_instrs_info[i] = nullptr;
+				for (int j = i + 1; j < count; j++) {
+					if (m_instrs_info[j] == deleteMe) {
+						m_instrs[j] = nullptr;
+					}
+				}
+
+				delete deleteMe;
+			}
+		}
+
+		// If we haven't already deleted our error handler, and we have one, then delete it now
+		if (!deletedErrorFunc && m_error_func)
+		{
+			delete m_error_func;
+		}
 	}
 
 	void set_parent(InstrCaller<TO>* parent, int opcode)
@@ -485,7 +558,7 @@ class Instr0 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr0(InstrList<count, TO>* list, const wxString& name,
+	Instr0(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)())
 		: InstrBase<TO>(name, opcode, 0)
 		, m_list(*list)
@@ -498,9 +571,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode);
 	}
 
@@ -521,7 +594,7 @@ class Instr1 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr1(InstrList<count, TO>* list, const wxString& name,
+	Instr1(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1),
 			CodeFieldBase& arg_1)
 		: InstrBase<TO>(name, opcode, 1)
@@ -537,9 +610,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | (*InstrBase<TO>::m_args[0])[args[0]];
 	}
 
@@ -560,7 +633,7 @@ class Instr2 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr2(InstrList<count, TO>* list, const wxString& name,
+	Instr2(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1, T2),
 			CodeFieldBase& arg_1,
 			CodeFieldBase& arg_2)
@@ -578,9 +651,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | (*InstrBase<TO>::m_args[0])[args[0]] | (*InstrBase<TO>::m_args[1])[args[1]];
 	}
 
@@ -601,7 +674,7 @@ class Instr3 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr3(InstrList<count, TO>* list, const wxString& name,
+	Instr3(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1, T2, T3),
 			CodeFieldBase& arg_1,
 			CodeFieldBase& arg_2,
@@ -621,9 +694,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | (*InstrBase<TO>::m_args[0])[args[0]] | (*InstrBase<TO>::m_args[1])[args[1]] | (*InstrBase<TO>::m_args[2])[args[2]];
 	}
 
@@ -644,7 +717,7 @@ class Instr4 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr4(InstrList<count, TO>* list, const wxString& name,
+	Instr4(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1, T2, T3, T4),
 			CodeFieldBase& arg_1,
 			CodeFieldBase& arg_2,
@@ -666,9 +739,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | 
 			(*InstrBase<TO>::m_args[0])[args[0]] |
 			(*InstrBase<TO>::m_args[1])[args[1]] |
@@ -697,7 +770,7 @@ class Instr5 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr5(InstrList<count, TO>* list, const wxString& name,
+	Instr5(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1, T2, T3, T4, T5),
 			CodeFieldBase& arg_1,
 			CodeFieldBase& arg_2,
@@ -721,9 +794,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | 
 			(*InstrBase<TO>::m_args[0])[args[0]] |
 			(*InstrBase<TO>::m_args[1])[args[1]] |
@@ -754,7 +827,7 @@ class Instr6 : public InstrBase<TO>
 	InstrList<count, TO>& m_list;
 
 public:
-	Instr6(InstrList<count, TO>* list, const wxString& name,
+	Instr6(InstrList<count, TO>* list, const std::string& name,
 			void (TO::*func)(T1, T2, T3, T4, T5, T6),
 			CodeFieldBase& arg_1,
 			CodeFieldBase& arg_2,
@@ -780,9 +853,9 @@ public:
 		m_list.decode(op, opcode, code);
 	}
 
-	virtual u32 encode(const Array<u32>& args) const
+	virtual u32 encode(const std::vector<u32>& args) const
 	{
-		assert(args.GetCount() == InstrBase<TO>::m_args_count);
+		assert(args.size() == InstrBase<TO>::m_args_count);
 		return m_list.encode(opcode) | 
 			(*InstrBase<TO>::m_args[0])[args[0]] |
 			(*InstrBase<TO>::m_args[1])[args[1]] |
@@ -810,13 +883,13 @@ public:
 };
 
 template<int opcode, typename TO, int count>
-static Instr0<TO, opcode, count>& make_instr(InstrList<count, TO>* list, const wxString& name, void (TO::*func)())
+static Instr0<TO, opcode, count>& make_instr(InstrList<count, TO>* list, const std::string& name, void (TO::*func)())
 {
 	return *new Instr0<TO, opcode, count>(list, name, func);
 }
 
 template<int opcode, typename TO, int count, typename T1>
-static Instr1<TO, opcode, count, T1>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr1<TO, opcode, count, T1>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1),
 	CodeFieldBase& arg_1)
 {
@@ -824,7 +897,7 @@ static Instr1<TO, opcode, count, T1>& make_instr(InstrList<count, TO>* list, con
 }
 
 template<int opcode, typename TO, int count, typename T1, typename T2>
-static Instr2<TO, opcode, count, T1, T2>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr2<TO, opcode, count, T1, T2>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1, T2),
 	CodeFieldBase& arg_1,
 	CodeFieldBase& arg_2)
@@ -833,7 +906,7 @@ static Instr2<TO, opcode, count, T1, T2>& make_instr(InstrList<count, TO>* list,
 }
 
 template<int opcode, typename TO, int count, typename T1, typename T2, typename T3>
-static Instr3<TO, opcode, count, T1, T2, T3>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr3<TO, opcode, count, T1, T2, T3>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1, T2, T3),
 	CodeFieldBase& arg_1,
 	CodeFieldBase& arg_2,
@@ -843,7 +916,7 @@ static Instr3<TO, opcode, count, T1, T2, T3>& make_instr(InstrList<count, TO>* l
 }
 
 template<int opcode, typename TO, int count, typename T1, typename T2, typename T3, typename T4>
-static Instr4<TO, opcode, count, T1, T2, T3, T4>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr4<TO, opcode, count, T1, T2, T3, T4>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1, T2, T3, T4),
 	CodeFieldBase& arg_1,
 	CodeFieldBase& arg_2,
@@ -854,7 +927,7 @@ static Instr4<TO, opcode, count, T1, T2, T3, T4>& make_instr(InstrList<count, TO
 }
 
 template<int opcode, typename TO, int count, typename T1, typename T2, typename T3, typename T4, typename T5>
-static Instr5<TO, opcode, count, T1, T2, T3, T4, T5>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr5<TO, opcode, count, T1, T2, T3, T4, T5>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1, T2, T3, T4, T5),
 	CodeFieldBase& arg_1,
 	CodeFieldBase& arg_2,
@@ -866,7 +939,7 @@ static Instr5<TO, opcode, count, T1, T2, T3, T4, T5>& make_instr(InstrList<count
 }
 
 template<int opcode, typename TO, int count, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6>
-static Instr6<TO, opcode, count, T1, T2, T3, T4, T5, T6>& make_instr(InstrList<count, TO>* list, const wxString& name,
+static Instr6<TO, opcode, count, T1, T2, T3, T4, T5, T6>& make_instr(InstrList<count, TO>* list, const std::string& name,
 	void (TO::*func)(T1, T2, T3, T4, T5, T6),
 	CodeFieldBase& arg_1,
 	CodeFieldBase& arg_2,

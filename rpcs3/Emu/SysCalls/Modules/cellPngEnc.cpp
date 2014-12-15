@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellPngEnc_init();
 Module cellPngEnc(0x0052, cellPngEnc_init);
@@ -8,12 +7,12 @@ Module cellPngEnc(0x0052, cellPngEnc_init);
 // Error Codes
 enum
 {
-	CELL_PNGENC_ERROR_ARG	= 0x80611291,
-	CELL_PNGENC_ERROR_SEQ	= 0x80611292,
-	CELL_PNGENC_ERROR_BUSY	= 0x80611293,
-	CELL_PNGENC_ERROR_EMPTY	= 0x80611294,
-	CELL_PNGENC_ERROR_RESET	= 0x80611295,
-	CELL_PNGENC_ERROR_FATAL	= 0x80611296,
+	CELL_PNGENC_ERROR_ARG   = 0x80611291,
+	CELL_PNGENC_ERROR_SEQ   = 0x80611292,
+	CELL_PNGENC_ERROR_BUSY  = 0x80611293,
+	CELL_PNGENC_ERROR_EMPTY = 0x80611294,
+	CELL_PNGENC_ERROR_RESET = 0x80611295,
+	CELL_PNGENC_ERROR_FATAL = 0x80611296,
 };
 
 int cellPngEncQueryAttr()
@@ -82,3 +81,4 @@ void cellPngEnc_init()
 	cellPngEnc.AddFunc(0x585269bc, cellPngEncGetStreamInfo);
 	cellPngEnc.AddFunc(0x6ac91de3, cellPngEncReset);
 }
+#endif

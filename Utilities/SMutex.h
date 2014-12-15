@@ -1,9 +1,7 @@
 #pragma once
+#include "Emu/Memory/atomic_type.h"
 
-extern void SM_Sleep();
-extern size_t SM_GetCurrentThreadId();
-extern u32 SM_GetCurrentCPUThreadId();
-extern be_t<u32> SM_GetCurrentCPUThreadIdBE();
+bool SM_IsAborted();
 
 enum SMutexResult
 {
@@ -20,30 +18,36 @@ enum SMutexResult
 template
 <
 	typename T,
-	u64 free_value = 0,
-	u64 dead_value = ~0,
-	void (*wait)() = SM_Sleep
+	const u64 free_value = 0,
+	const u64 dead_value = 0xffffffffffffffffull
 >
 class SMutexBase
 {
-	static_assert(sizeof(T) == sizeof(std::atomic<T>), "Invalid SMutexBase type");
-	std::atomic<T> owner;
+	static_assert(sizeof(T) == sizeof(atomic_le_t<T>), "Invalid SMutexBase type");
+	T owner;
+	typedef atomic_le_t<T> AT;
 
 public:
-	SMutexBase()
-		: owner((T)free_value)
+	static const T GetFreeValue()
 	{
+		static const u64 value = free_value;
+		return (T&)value;
+	}
+
+	static const T GetDeadValue()
+	{
+		static const u64 value = dead_value;
+		return (T&)value;
 	}
 
 	void initialize()
 	{
-		(T&)owner = free_value;
+		owner = GetFreeValue();
 	}
 
-	~SMutexBase()
+	void finalize()
 	{
-		lock((T)dead_value);
-		owner = (T)dead_value;
+		owner = GetDeadValue();
 	}
 
 	__forceinline T GetOwner() const
@@ -51,31 +55,21 @@ public:
 		return (T&)owner;
 	}
 
-	__forceinline T GetFreeValue() const
-	{
-		return (T)free_value;
-	}
-
-	__forceinline T GetDeadValue() const
-	{
-		return (T)dead_value;
-	}
-
 	SMutexResult trylock(T tid)
 	{
-		if (Emu.IsStopped())
+		if (SM_IsAborted())
 		{
 			return SMR_ABORT;
 		}
-		T old = (T)free_value;
+		T old = reinterpret_cast<AT&>(owner).compare_and_swap(GetFreeValue(), tid);
 
-		if (!owner.compare_exchange_strong(old, tid))
+		if (old != GetFreeValue())
 		{
 			if (old == tid)
 			{
 				return SMR_DEADLOCK;
 			}
-			if (old == (T)dead_value)
+			if (old == GetDeadValue())
 			{
 				return SMR_DESTROYED;
 			}
@@ -85,21 +79,21 @@ public:
 		return SMR_OK;
 	}
 
-	SMutexResult unlock(T tid, T to = (T)free_value)
+	SMutexResult unlock(T tid, T to = GetFreeValue())
 	{
-		if (Emu.IsStopped())
+		if (SM_IsAborted())
 		{
 			return SMR_ABORT;
 		}
-		T old = tid;
+		T old = reinterpret_cast<AT&>(owner).compare_and_swap(tid, to);
 
-		if (!owner.compare_exchange_strong(old, to))
+		if (old != tid)
 		{
-			if (old == (T)free_value)
+			if (old == GetFreeValue())
 			{
 				return SMR_FAILED;
 			}
-			if (old == (T)dead_value)
+			if (old == GetDeadValue())
 			{
 				return SMR_DESTROYED;
 			}
@@ -122,7 +116,7 @@ public:
 				default: return res;
 			}
 
-			wait();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
 			if (timeout && counter++ > timeout)
 			{
@@ -132,45 +126,4 @@ public:
 	}
 };
 
-template<typename T, T (get_tid)()>
-class SMutexLockerBase
-{
-	SMutexBase<T>& sm;
-public:
-	const T tid;
-
-	SMutexLockerBase(SMutexBase<T>& _sm)
-		: sm(_sm)
-		, tid(get_tid())
-	{
-		if (!tid)
-		{
-			if (!Emu.IsStopped())
-			{
-				ConLog.Error("SMutexLockerBase: thread id == 0");
-				Emu.Pause();
-			}
-			return;
-		}
-		sm.lock(tid);
-	}
-
-	~SMutexLockerBase()
-	{
-		if (tid) sm.unlock(tid);
-	}
-};
-
-typedef SMutexBase<size_t>
-	SMutexGeneral;
-typedef SMutexBase<u32>
-	SMutex;
-typedef SMutexBase<be_t<u32>>
-	SMutexBE;
-
-typedef SMutexLockerBase<size_t, SM_GetCurrentThreadId>
-	SMutexGeneralLocker;
-typedef SMutexLockerBase<u32, SM_GetCurrentCPUThreadId>
-	SMutexLocker;
-typedef SMutexLockerBase<be_t<u32>, SM_GetCurrentCPUThreadIdBE>
-	SMutexBELocker;
+typedef SMutexBase<u32> SMutex;

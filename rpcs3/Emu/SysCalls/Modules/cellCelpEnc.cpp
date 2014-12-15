@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellCelpEnc_init();
 Module cellCelpEnc(0xf00a, cellCelpEnc_init);
@@ -8,12 +7,12 @@ Module cellCelpEnc(0xf00a, cellCelpEnc_init);
 // Return Codes
 enum
 {
-	CELL_CELPENC_ERROR_FAILED		= 0x80614001,
-	CELL_CELPENC_ERROR_SEQ			= 0x80614002,
-	CELL_CELPENC_ERROR_ARG			= 0x80614003,
-	CELL_CELPENC_ERROR_CORE_FAILED	= 0x80614081,
-	CELL_CELPENC_ERROR_CORE_SEQ		= 0x80614082,
-	CELL_CELPENC_ERROR_CORE_ARG		= 0x80614083,
+	CELL_CELPENC_ERROR_FAILED      = 0x80614001,
+	CELL_CELPENC_ERROR_SEQ         = 0x80614002,
+	CELL_CELPENC_ERROR_ARG         = 0x80614003,
+	CELL_CELPENC_ERROR_CORE_FAILED = 0x80614081,
+	CELL_CELPENC_ERROR_CORE_SEQ    = 0x80614082,
+	CELL_CELPENC_ERROR_CORE_ARG    = 0x80614083,
 };
 
 int cellCelpEncQueryAttr()
@@ -82,3 +81,4 @@ void cellCelpEnc_init()
 	cellCelpEnc.AddFunc(0x9b244272, cellCelpEncWaitForOutput);
 	cellCelpEnc.AddFunc(0x3773692f, cellCelpEncGetAu);
 }
+#endif 

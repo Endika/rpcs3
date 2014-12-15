@@ -1,325 +1,287 @@
 #include "stdafx.h"
+#include "Utilities/Log.h"
+#include "Utilities/rFile.h"
+#include "Emu/FS/vfsStream.h"
+#include "Emu/Memory/Memory.h"
 #include "ELF32.h"
+#include "Emu/Cell/SPUThread.h"
+#include "Emu/ARMv7/ARMv7Thread.h"
+#include "Emu/ARMv7/PSVFuncList.h"
+#include "Emu/System.h"
 
-void WriteEhdr(wxFile& f, Elf32_Ehdr& ehdr)
+namespace loader
 {
-	Write32(f, ehdr.e_magic);
-	Write8(f, ehdr.e_class);
-	Write8(f, ehdr.e_data);
-	Write8(f, ehdr.e_curver);
-	Write8(f, ehdr.e_os_abi);
-	Write64(f, ehdr.e_abi_ver);
-	Write16(f, ehdr.e_type);
-	Write16(f, ehdr.e_machine);
-	Write32(f, ehdr.e_version);
-	Write32(f, ehdr.e_entry);
-	Write32(f, ehdr.e_phoff);
-	Write32(f, ehdr.e_shoff);
-	Write32(f, ehdr.e_flags);
-	Write16(f, ehdr.e_ehsize);
-	Write16(f, ehdr.e_phentsize);
-	Write16(f, ehdr.e_phnum);
-	Write16(f, ehdr.e_shentsize);
-	Write16(f, ehdr.e_shnum);
-	Write16(f, ehdr.e_shstrndx);
-}
-
-void WritePhdr(wxFile& f, Elf32_Phdr& phdr)
-{
-	Write32(f, phdr.p_type);
-	Write32(f, phdr.p_offset);
-	Write32(f, phdr.p_vaddr);
-	Write32(f, phdr.p_paddr);
-	Write32(f, phdr.p_filesz);
-	Write32(f, phdr.p_memsz);
-	Write32(f, phdr.p_flags);
-	Write32(f, phdr.p_align);
-}
-
-void WriteShdr(wxFile& f, Elf32_Shdr& shdr)
-{
-	Write32(f, shdr.sh_name);
-	Write32(f, shdr.sh_type);
-	Write32(f, shdr.sh_flags);
-	Write32(f, shdr.sh_addr);
-	Write32(f, shdr.sh_offset);
-	Write32(f, shdr.sh_size);
-	Write32(f, shdr.sh_link);
-	Write32(f, shdr.sh_info);
-	Write32(f, shdr.sh_addralign);
-	Write32(f, shdr.sh_entsize);
-}
-
-ELF32Loader::ELF32Loader(vfsStream& f)
-	: elf32_f(f)
-	, LoaderBase()
-{
-}
-
-bool ELF32Loader::LoadInfo()
-{
-	if(!elf32_f.IsOpened()) return false;
-
-	if(!LoadEhdrInfo()) return false;
-	if(!LoadPhdrInfo()) return false;
-	if(!LoadShdrInfo()) return false;
-
-	return true;
-}
-
-bool ELF32Loader::LoadData(u64 offset)
-{
-	if(!elf32_f.IsOpened()) return false;
-
-	if(!LoadEhdrData(offset)) return false;
-	if(!LoadPhdrData(offset)) return false;
-	if(!LoadShdrData(offset)) return false;
-
-	return true;
-}
-
-bool ELF32Loader::Close()
-{
-	return elf32_f.Close();
-}
-
-bool ELF32Loader::LoadEhdrInfo()
-{
-	elf32_f.Seek(0);
-	ehdr.Load(elf32_f);
-
-	if(!ehdr.CheckMagic()) return false;
-
-	if(ehdr.IsLittleEndian())
-		ConLog.Warning("ELF32 LE");
-
-	switch(ehdr.e_machine)
+	namespace handlers
 	{
-	case MACHINE_MIPS:
-	case MACHINE_PPC64:
-	case MACHINE_SPU:
-	case MACHINE_ARM:
-		machine = (Elf_Machine)ehdr.e_machine;
-	break;
-
-	default:
-		machine = MACHINE_Unknown;
-		ConLog.Error("Unknown elf32 machine: 0x%x", ehdr.e_machine);
-		return false;
-	}
-
-	entry = ehdr.GetEntry();
-	if(entry == 0)
-	{
-		ConLog.Error("elf32 error: entry is null!");
-		return false;
-	}
-
-	return true;
-}
-
-bool ELF32Loader::LoadPhdrInfo()
-{
-	if(ehdr.e_phoff == 0 && ehdr.e_phnum)
-	{
-		ConLog.Error("LoadPhdr32 error: Program header offset is null!");
-		return false;
-	}
-
-	elf32_f.Seek(ehdr.e_phoff);
-	for(uint i=0; i<ehdr.e_phnum; ++i)
-	{
-		Elf32_Phdr* phdr = new Elf32_Phdr();
-		if(ehdr.IsLittleEndian()) phdr->LoadLE(elf32_f);
-		else phdr->Load(elf32_f);
-		phdr_arr.Move(phdr);
-	}
-
-	if(/*!Memory.IsGoodAddr(entry)*/ entry & 0x1)
-	{
-		//entry is physical, convert to virtual
-
-		entry &= ~0x1;
-
-		for(size_t i=0; i<phdr_arr.GetCount(); ++i)
+		handler::error_code elf32::init(vfsStream& stream)
 		{
-			if(phdr_arr[i].p_paddr >= entry && entry < phdr_arr[i].p_paddr + phdr_arr[i].p_memsz)
+			error_code res = handler::init(stream);
+
+			if (res != ok)
+				return res;
+
+			m_stream->Read(&m_ehdr, sizeof(ehdr));
+
+			if (!m_ehdr.check())
 			{
-				entry += phdr_arr[i].p_vaddr;
-				ConLog.Warning("virtual entry = 0x%x", entry);
-				break;
-			}
-		}
-	}
-
-	return true;
-}
-
-bool ELF32Loader::LoadShdrInfo()
-{
-	elf32_f.Seek(ehdr.e_shoff);
-	for(u32 i=0; i<ehdr.e_shnum; ++i)
-	{
-		Elf32_Shdr* shdr = new Elf32_Shdr();
-		if(ehdr.IsLittleEndian()) shdr->LoadLE(elf32_f);
-		else shdr->Load(elf32_f);
-		shdr_arr.Move(shdr);
-	}
-
-	if(ehdr.e_shstrndx >= shdr_arr.GetCount())
-	{
-		ConLog.Warning("LoadShdr32 error: shstrndx too big!");
-		return true;
-	}
-
-	for(u32 i=0; i<shdr_arr.GetCount(); ++i)
-	{
-		elf32_f.Seek(shdr_arr[ehdr.e_shstrndx].sh_offset + shdr_arr[i].sh_name);
-		wxString name = wxEmptyString;
-		while(!elf32_f.Eof())
-		{
-			char c;
-			elf32_f.Read(&c, 1);
-			if(c == 0) break;
-			name += c;
-		}
-		shdr_name_arr.Add(name);	
-	}
-
-	return true;
-}
-
-bool ELF32Loader::LoadEhdrData(u64 offset)
-{
-#ifdef LOADER_DEBUG
-	ConLog.SkipLn();
-	ehdr.Show();
-	ConLog.SkipLn();
-#endif
-	return true;
-}
-
-bool ELF32Loader::LoadPhdrData(u64 _offset)
-{
-	const u64 offset = machine == MACHINE_SPU ? _offset : 0;
-
-	for(u32 i=0; i<phdr_arr.GetCount(); ++i)
-	{
-		phdr_arr[i].Show();
-
-		if(phdr_arr[i].p_type == 0x00000001) //LOAD
-		{
-			if(phdr_arr[i].p_vaddr < min_addr)
-			{
-				min_addr = phdr_arr[i].p_vaddr;
+				return bad_file;
 			}
 
-			if(phdr_arr[i].p_vaddr + phdr_arr[i].p_memsz > max_addr)
+			if (m_ehdr.data_le.e_phnum && (m_ehdr.is_le() ? m_ehdr.data_le.e_phentsize : m_ehdr.data_be.e_phentsize) != sizeof(phdr))
 			{
-				max_addr = phdr_arr[i].p_vaddr + phdr_arr[i].p_memsz;
+				return broken_file;
 			}
 
-			if(phdr_arr[i].p_vaddr != phdr_arr[i].p_paddr)
+			if (m_ehdr.data_le.e_shnum && (m_ehdr.is_le() ? m_ehdr.data_le.e_shentsize : m_ehdr.data_be.e_shentsize) != sizeof(shdr))
 			{
-				ConLog.Warning
-				( 
-					"LoadPhdr32 different load addrs: paddr=0x%8.8x, vaddr=0x%8.8x", 
-					phdr_arr[i].p_paddr, phdr_arr[i].p_vaddr
-				);
+				return broken_file;
 			}
 
-			switch(machine)
+			LOG_WARNING(LOADER, "m_ehdr.e_type = 0x%x", (u16)(m_ehdr.is_le() ? m_ehdr.data_le.e_type : m_ehdr.data_be.e_type));
+
+			if (m_ehdr.data_le.e_phnum)
 			{
-			case MACHINE_SPU: Memory.MainMem.AllocFixed(phdr_arr[i].p_vaddr + offset, phdr_arr[i].p_memsz); break;
-			case MACHINE_MIPS: Memory.PSPMemory.RAM.AllocFixed(phdr_arr[i].p_vaddr + offset, phdr_arr[i].p_memsz); break;
-			case MACHINE_ARM: Memory.PSVMemory.RAM.AllocFixed(phdr_arr[i].p_vaddr + offset, phdr_arr[i].p_memsz); break;
+				m_phdrs.resize(m_ehdr.is_le() ? m_ehdr.data_le.e_phnum : m_ehdr.data_be.e_phnum);
+				m_stream->Seek(handler::get_stream_offset() + (m_ehdr.is_le() ? m_ehdr.data_le.e_phoff : m_ehdr.data_be.e_phoff));
+				size_t size = (m_ehdr.is_le() ? m_ehdr.data_le.e_phnum : m_ehdr.data_be.e_phnum) * sizeof(phdr);
 
-			default:
-				continue;
-			}
-
-			elf32_f.Seek(phdr_arr[i].p_offset);
-			elf32_f.Read(&Memory[phdr_arr[i].p_vaddr + offset], phdr_arr[i].p_filesz);
-		}
-		else if(phdr_arr[i].p_type == 0x00000004)
-		{
-			elf32_f.Seek(phdr_arr[i].p_offset);
-			Elf32_Note note;
-			if(ehdr.IsLittleEndian()) note.LoadLE(elf32_f);
-			else note.Load(elf32_f);
-
-			if(note.type != 1)
-			{
-				ConLog.Error("ELF32: Bad NOTE type (%d)", note.type);
-				break;
-			}
-
-			if(note.namesz != sizeof(note.name))
-			{
-				ConLog.Error("ELF32: Bad NOTE namesz (%d)", note.namesz);
-				break;
-			}
-
-			if(note.descsz != sizeof(note.desc) && note.descsz != 32)
-			{
-				ConLog.Error("ELF32: Bad NOTE descsz (%d)", note.descsz);
-				break;
-			}
-
-			//if(note.desc.flags)
-			//{
-			//	ConLog.Error("ELF32: Bad NOTE flags (0x%x)", note.desc.flags);
-			//	break;
-			//}
-
-			if(note.descsz == sizeof(note.desc))
-			{
-				ConLog.Warning("name = %s", wxString(note.name, 8).wx_str());
-				ConLog.Warning("ls_size = %d", note.desc.ls_size);
-				ConLog.Warning("stack_size = %d", note.desc.stack_size);
+				if (m_stream->Read(m_phdrs.data(), size) != size)
+					return broken_file;
 			}
 			else
+				m_phdrs.clear();
+
+			if (m_ehdr.data_le.e_shnum)
 			{
-				ConLog.Warning("desc = '%s'", wxString(note.desc_text, 32).wx_str());
+				m_shdrs.resize(m_ehdr.is_le() ? m_ehdr.data_le.e_shnum : m_ehdr.data_be.e_shnum);
+				m_stream->Seek(handler::get_stream_offset() + (m_ehdr.is_le() ? m_ehdr.data_le.e_shoff : m_ehdr.data_be.e_shoff));
+				size_t size = (m_ehdr.is_le() ? m_ehdr.data_le.e_shnum : m_ehdr.data_be.e_shnum) * sizeof(phdr);
+
+				if (m_stream->Read(m_shdrs.data(), size) != size)
+					return broken_file;
 			}
+			else
+				m_shdrs.clear();
+
+			return ok;
 		}
-#ifdef LOADER_DEBUG
-		ConLog.SkipLn();
-#endif
+
+		handler::error_code elf32::load()
+		{
+			Elf_Machine machine;
+			switch (machine = (Elf_Machine)(u16)(m_ehdr.is_le() ? m_ehdr.data_le.e_machine : m_ehdr.data_be.e_machine))
+			{
+			case MACHINE_MIPS: vm::psp::init(); break;
+			case MACHINE_ARM: vm::psv::init(); break;
+			case MACHINE_SPU: vm::ps3::init(); break;
+
+			default:
+				return bad_version;
+			}
+
+			error_code res = load_data(0);
+
+			if (res != ok)
+				return res;
+
+			switch (machine)
+			{
+			case MACHINE_MIPS: break;
+			case MACHINE_ARM:
+			{
+				list_known_psv_modules();
+
+				auto armv7_thr_stop_data = vm::psv::ptr<u32>::make(Memory.PSV.RAM.AllocAlign(3 * 4));
+				armv7_thr_stop_data[0] = 0xf870; // HACK instruction (Thumb)
+				armv7_thr_stop_data[1] = 0x0001; // index 1
+				Emu.SetCPUThreadExit(armv7_thr_stop_data.addr());
+
+				u32 entry = 0; // actual entry point (ELFs entry point is ignored)
+				u32 fnid_addr = 0;
+
+				// load section names
+				//assert(m_ehdr.data_le.e_shstrndx < m_shdrs.size());
+				//const u32 sname_off = m_shdrs[m_ehdr.data_le.e_shstrndx].data_le.sh_offset;
+				//const u32 sname_size = m_shdrs[m_ehdr.data_le.e_shstrndx].data_le.sh_size;
+				//const u32 sname_base = sname_size ? Memory.PSV.RAM.AllocAlign(sname_size) : 0;
+				//if (sname_base)
+				//{
+				//	m_stream->Seek(handler::get_stream_offset() + sname_off);
+				//	m_stream->Read(vm::get_ptr<void>(sname_base), sname_size);
+				//}
+
+				for (auto& shdr : m_shdrs)
+				{
+					// get secton name
+					//auto name = vm::psv::ptr<const char>::make(sname_base + shdr.data_le.sh_name);
+
+					m_stream->Seek(handler::get_stream_offset() + m_shdrs[m_ehdr.data_le.e_shstrndx].data_le.sh_offset + shdr.data_le.sh_name);
+					std::string name;
+					while (!m_stream->Eof())
+					{
+						char c;
+						m_stream->Read(&c, 1);
+						if (c == 0) break;
+						name.push_back(c);
+					}
+
+					if (!strcmp(name.c_str(), ".sceModuleInfo.rodata"))
+					{
+						LOG_NOTICE(LOADER, ".sceModuleInfo.rodata analysis...");
+
+						auto code = vm::psv::ptr<const u32>::make(shdr.data_le.sh_addr);
+
+						// very rough way to find the entry point
+						while (code[0] != 0xffffffffu)
+						{
+							entry = code[0] + 0x81000000;
+							code++;
+
+							if (code.addr() >= shdr.data_le.sh_addr + shdr.data_le.sh_size)
+							{
+								LOG_ERROR(LOADER, "Unable to find entry point in .sceModuleInfo.rodata");
+								entry = 0;
+								break;
+							}
+						}
+					}
+					else if (!strcmp(name.c_str(), ".sceFNID.rodata"))
+					{
+						LOG_NOTICE(LOADER, ".sceFNID.rodata analysis...");
+
+						fnid_addr = shdr.data_le.sh_addr;
+					}
+					else if (!strcmp(name.c_str(), ".sceFStub.rodata"))
+					{
+						LOG_NOTICE(LOADER, ".sceFStub.rodata analysis...");
+
+						if (!fnid_addr)
+						{
+							LOG_ERROR(LOADER, ".sceFNID.rodata address not found, unable to process imports");
+							continue;
+						}
+
+						auto fnid = vm::psv::ptr<const u32>::make(fnid_addr);
+						auto fstub = vm::psv::ptr<const u32>::make(shdr.data_le.sh_addr);
+
+						for (u32 j = 0; j < shdr.data_le.sh_size / 4; j++)
+						{
+							u32 nid = fnid[j];
+							u32 addr = fstub[j];
+
+							if (auto func = get_psv_func_by_nid(nid))
+							{
+								if (func->module)
+									func->module->Notice("Imported function %s (nid=0x%08x, addr=0x%x)", func->name, nid, addr);
+								else
+									LOG_NOTICE(LOADER, "Imported function %s (nid=0x%08x, addr=0x%x)", func->name, nid, addr);
+
+								// writing Thumb code (temporarily, because it should be ARM)
+								vm::psv::write16(addr + 0, 0xf870); // HACK instruction (Thumb)
+								vm::psv::write16(addr + 2, (u16)get_psv_func_index(func)); // function index
+								vm::psv::write16(addr + 4, 0x4770); // BX LR
+								vm::psv::write16(addr + 6, 0); // null
+							}
+							else
+							{
+								LOG_ERROR(LOADER, "Unimplemented function 0x%08x (addr=0x%x)", nid, addr);
+
+								vm::psv::write16(addr + 0, 0xf870); // HACK instruction (Thumb)
+								vm::psv::write16(addr + 2, 0x0000); // index 0
+								vm::psv::write16(addr + 4, 0x4770); // BX LR
+								vm::psv::write16(addr + 6, 0); // null
+							}
+						}
+					}
+					else if (!strcmp(name.c_str(), ".sceRefs.rodata"))
+					{
+						LOG_NOTICE(LOADER, ".sceRefs.rodata analysis...");
+
+						u32 data = 0;
+
+						for (auto code = vm::psv::ptr<const u32>::make(shdr.data_le.sh_addr); code.addr() < shdr.data_le.sh_addr + shdr.data_le.sh_size; code++)
+						{
+							switch (*code)
+							{
+							case 0x000000ff:
+							{
+								// save address for future use
+								data = *++code;
+								break;
+							}
+							case 0x0000002f:
+							{
+								// movw r12,# instruction will be replaced
+								const u32 addr = *++code;
+								vm::psv::write16(addr + 0, 0xf240 | (data & 0x800) >> 1 | (data & 0xf000) >> 12); // MOVW
+								vm::psv::write16(addr + 2, 0x0c00 | (data & 0x700) << 4 | (data & 0xff));
+								break;
+							}
+							case 0x00000030:
+							{
+								// movt r12,# instruction will be replaced
+								const u32 addr = *++code;
+								vm::psv::write16(addr + 0, 0xf2c0 | (data & 0x8000000) >> 17 | (data & 0xf0000000) >> 28); // MOVT
+								vm::psv::write16(addr + 2, 0x0c00 | (data & 0x7000000) >> 12 | (data & 0xff0000) >> 16);
+								break;
+							}
+							case 0x00000000:
+							{
+								// probably, no operation
+								break;
+							}
+							default:
+							{
+								LOG_NOTICE(LOADER, "sceRefs: unknown code found (0x%08x)", *code);
+							}
+							}
+						}
+					}
+				}
+
+				arm7_thread(entry & ~1 /* TODO: Thumb/ARM encoding selection */, "main_thread").args({ Emu.GetPath()/*, "-emu"*/ }).run();
+				break;
+			}
+			case MACHINE_SPU: spu_thread(m_ehdr.is_le() ? m_ehdr.data_le.e_entry : m_ehdr.data_be.e_entry, "main_thread").args({ Emu.GetPath()/*, "-emu"*/ }).run(); break;
+			}
+
+			return ok;
+		}
+
+		handler::error_code elf32::load_data(u32 offset)
+		{
+			Elf_Machine machine = (Elf_Machine)(u16)(m_ehdr.is_le() ? m_ehdr.data_le.e_machine : m_ehdr.data_be.e_machine);
+
+			for (auto &phdr : m_phdrs)
+			{
+				u32 memsz = m_ehdr.is_le() ? phdr.data_le.p_memsz : phdr.data_be.p_memsz;
+				u32 filesz = m_ehdr.is_le() ? phdr.data_le.p_filesz : phdr.data_be.p_filesz;
+				u32 vaddr = offset + (m_ehdr.is_le() ? phdr.data_le.p_vaddr : phdr.data_be.p_vaddr);
+				u32 offset = m_ehdr.is_le() ? phdr.data_le.p_offset : phdr.data_be.p_offset;
+
+				switch (m_ehdr.is_le() ? phdr.data_le.p_type : phdr.data_be.p_type)
+				{
+				case 0x00000001: //LOAD
+					if (phdr.data_le.p_memsz)
+					{
+						if (machine == MACHINE_ARM && !Memory.PSV.RAM.AllocFixed(vaddr, memsz))
+						{
+							LOG_ERROR(LOADER, "%s(): AllocFixed(0x%llx, 0x%x) failed", __FUNCTION__, vaddr, memsz);
+
+							return loading_error;
+						}
+
+						if (filesz)
+						{
+							m_stream->Seek(handler::get_stream_offset() + offset);
+							m_stream->Read(vm::get_ptr(vaddr), filesz);
+						}
+					}
+					break;
+				}
+			}
+
+			return ok;
+		}
 	}
-
-	return true;
-}
-
-bool ELF32Loader::LoadShdrData(u64 offset)
-{
-	for(u32 i=0; i<shdr_arr.GetCount(); ++i)
-	{
-		Elf32_Shdr& shdr = shdr_arr[i];
-
-#ifdef LOADER_DEBUG
-		if(i < shdr_name_arr.GetCount()) ConLog.Write("Name: %s", shdr_name_arr[i].wx_str());
-		shdr.Show();
-		ConLog.SkipLn();
-#endif
-		if((shdr.sh_type == SHT_RELA) || (shdr.sh_type == SHT_REL))
-		{
-			ConLog.Error("ELF32 ERROR: Relocation");
-			continue;
-		}
-		if((shdr.sh_flags & SHF_ALLOC) != SHF_ALLOC) continue;
-
-		if(shdr.sh_addr < min_addr)
-		{
-			min_addr = shdr.sh_addr;
-		}
-
-		if(shdr.sh_addr + shdr.sh_size > max_addr)
-		{
-			max_addr = shdr.sh_addr + shdr.sh_size;
-		}
-	}
-
-	//TODO
-	return true;
 }

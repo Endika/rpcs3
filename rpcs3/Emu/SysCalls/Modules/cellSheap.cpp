@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellSheap_init();
 Module cellSheap(0x000c, cellSheap_init);
@@ -8,10 +7,10 @@ Module cellSheap(0x000c, cellSheap_init);
 // Return Codes
 enum
 {
-	CELL_SHEAP_ERROR_INVAL		= 0x80410302,
-	CELL_SHEAP_ERROR_BUSY		= 0x8041030A,
-	CELL_SHEAP_ERROR_ALIGN		= 0x80410310,
-	CELL_SHEAP_ERROR_SHORTAGE	= 0x80410312,
+	CELL_SHEAP_ERROR_INVAL    = 0x80410302,
+	CELL_SHEAP_ERROR_BUSY     = 0x8041030A,
+	CELL_SHEAP_ERROR_ALIGN    = 0x80410310,
+	CELL_SHEAP_ERROR_SHORTAGE = 0x80410312,
 };
 
 int cellSheapInitialize()
@@ -146,3 +145,4 @@ void cellSheap_init()
 	cellSheap.AddFunc(0x987e260e, cellKeySheapQueueNew);
 	cellSheap.AddFunc(0x79a6abd0, cellKeySheapQueueDelete);
 }
+#endif

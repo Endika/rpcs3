@@ -1,6 +1,8 @@
 #pragma once
 #include "Loader.h"
 
+struct vfsStream;
+
 struct TRPHeader
 {
 	be_t<u32> trp_magic;
@@ -30,7 +32,13 @@ class TRPLoader
 
 public:
 	TRPLoader(vfsStream& f);
+	~TRPLoader();
 	virtual bool Install(std::string dest, bool show = false);
 	virtual bool LoadHeader(bool show = false);
+
+	virtual bool ContainsEntry(const char *filename);
+	virtual void RemoveEntry(const char *filename);
+	virtual void RenameEntry(const char *oldname, const char *newname);
+
 	virtual bool Close();
 };

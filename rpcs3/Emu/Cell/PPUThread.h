@@ -1,8 +1,6 @@
-﻿#pragma once
+#pragma once
 #include "Emu/Cell/PPCThread.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "rpcs3.h"
-#include <cmath>
+#include "Emu/Memory/vm.h"
 
 enum
 {
@@ -21,40 +19,40 @@ enum
 
 enum
 {
-	PPU_THREAD_STATUS_IDLE		= (1 << 0),
-	PPU_THREAD_STATUS_RUNNABLE	= (1 << 1),
-	PPU_THREAD_STATUS_ONPROC	= (1 << 2),
-	PPU_THREAD_STATUS_SLEEP		= (1 << 3),
-	PPU_THREAD_STATUS_STOP		= (1 << 4),
-	PPU_THREAD_STATUS_ZOMBIE	= (1 << 5),
-	PPU_THREAD_STATUS_DELETED	= (1 << 6),
-	PPU_THREAD_STATUS_UNKNOWN	= (1 << 7),
+	PPU_THREAD_STATUS_IDLE      = (1 << 0),
+	PPU_THREAD_STATUS_RUNNABLE  = (1 << 1),
+	PPU_THREAD_STATUS_ONPROC    = (1 << 2),
+	PPU_THREAD_STATUS_SLEEP     = (1 << 3),
+	PPU_THREAD_STATUS_STOP      = (1 << 4),
+	PPU_THREAD_STATUS_ZOMBIE    = (1 << 5),
+	PPU_THREAD_STATUS_DELETED   = (1 << 6),
+	PPU_THREAD_STATUS_UNKNOWN   = (1 << 7),
 };
 
 enum FPSCR_EXP
 {
-	FPSCR_FX		= 0x80000000,
-	FPSCR_FEX		= 0x40000000,
-	FPSCR_VX		= 0x20000000,
-	FPSCR_OX		= 0x10000000,
+	FPSCR_FX        = 0x80000000,
+	FPSCR_FEX       = 0x40000000,
+	FPSCR_VX        = 0x20000000,
+	FPSCR_OX        = 0x10000000,
 
-	FPSCR_UX		= 0x08000000,
-	FPSCR_ZX		= 0x04000000,
-	FPSCR_XX		= 0x02000000,
-	FPSCR_VXSNAN	= 0x01000000,
+	FPSCR_UX        = 0x08000000,
+	FPSCR_ZX        = 0x04000000,
+	FPSCR_XX        = 0x02000000,
+	FPSCR_VXSNAN    = 0x01000000,
 
-	FPSCR_VXISI		= 0x00800000,
-	FPSCR_VXIDI		= 0x00400000,
-	FPSCR_VXZDZ		= 0x00200000,
-	FPSCR_VXIMZ		= 0x00100000,
+	FPSCR_VXISI     = 0x00800000,
+	FPSCR_VXIDI     = 0x00400000,
+	FPSCR_VXZDZ     = 0x00200000,
+	FPSCR_VXIMZ     = 0x00100000,
 
-	FPSCR_VXVC		= 0x00080000,
-	FPSCR_FR		= 0x00040000,
-	FPSCR_FI		= 0x00020000,
+	FPSCR_VXVC      = 0x00080000,
+	FPSCR_FR        = 0x00040000,
+	FPSCR_FI        = 0x00020000,
 
-	FPSCR_VXSOFT	= 0x00000400,
-	FPSCR_VXSQRT	= 0x00000200,
-	FPSCR_VXCVI		= 0x00000100,
+	FPSCR_VXSOFT    = 0x00000400,
+	FPSCR_VXSQRT    = 0x00000200,
+	FPSCR_VXCVI     = 0x00000100,
 };
 
 enum FPSCR_RN
@@ -74,33 +72,33 @@ union FPSCRhdr
 {
 	struct
 	{
-		u32 RN		:2; //Floating-point rounding control
-		u32 NI		:1; //Floating-point non-IEEE mode
-		u32 XE		:1; //Floating-point inexact exception enable
-		u32 ZE		:1; //IEEE ﬂoating-point zero divide exception enable
-		u32 UE		:1; //IEEE ﬂoating-point underﬂow exception enable
-		u32 OE		:1; //IEEE ﬂoating-point overﬂow exception enable
-		u32 VE		:1; //Floating-point invalid operation exception enable
-		u32 VXCVI	:1; //Floating-point invalid operation exception for invalid integer convert
-		u32 VXSQRT	:1; //Floating-point invalid operation exception for invalid square root
-		u32 VXSOFT	:1; //Floating-point invalid operation exception for software request
-		u32			:1; //Reserved
-		u32 FPRF	:5; //Floating-point result ﬂags
-		u32 FI		:1; //Floating-point fraction inexact
-		u32 FR		:1; //Floating-point fraction rounded
-		u32 VXVC	:1; //Floating-point invalid operation exception for invalid compare
-		u32 VXIMZ	:1; //Floating-point invalid operation exception for * * 0
-		u32 VXZDZ	:1; //Floating-point invalid operation exception for 0 / 0
-		u32 VXIDI	:1; //Floating-point invalid operation exception for * + *
-		u32 VXISI	:1; //Floating-point invalid operation exception for * - *
-		u32 VXSNAN	:1; //Floating-point invalid operation exception for SNaN
-		u32 XX		:1; //Floating-point inexact exception
-		u32 ZX		:1; //Floating-point zero divide exception
-		u32 UX		:1; //Floating-point underﬂow exception
-		u32 OX		:1; //Floating-point overﬂow exception
-		u32 VX		:1; //Floating-point invalid operation exception summary
-		u32 FEX		:1; //Floating-point enabled exception summary
-		u32 FX		:1; //Floating-point exception summary
+		u32 RN      :2; //Floating-point rounding control
+		u32 NI      :1; //Floating-point non-IEEE mode
+		u32 XE      :1; //Floating-point inexact exception enable
+		u32 ZE      :1; //IEEE floating-point zero divide exception enable
+		u32 UE      :1; //IEEE floating-point underflow exception enable
+		u32 OE      :1; //IEEE floating-point overflow exception enable
+		u32 VE      :1; //Floating-point invalid operation exception enable
+		u32 VXCVI   :1; //Floating-point invalid operation exception for invalid integer convert
+		u32 VXSQRT  :1; //Floating-point invalid operation exception for invalid square root
+		u32 VXSOFT  :1; //Floating-point invalid operation exception for software request
+		u32         :1; //Reserved
+		u32 FPRF    :5; //Floating-point result flags
+		u32 FI      :1; //Floating-point fraction inexact
+		u32 FR      :1; //Floating-point fraction rounded
+		u32 VXVC    :1; //Floating-point invalid operation exception for invalid compare
+		u32 VXIMZ   :1; //Floating-point invalid operation exception for * * 0
+		u32 VXZDZ   :1; //Floating-point invalid operation exception for 0 / 0
+		u32 VXIDI   :1; //Floating-point invalid operation exception for * + *
+		u32 VXISI   :1; //Floating-point invalid operation exception for * - *
+		u32 VXSNAN  :1; //Floating-point invalid operation exception for SNaN
+		u32 XX      :1; //Floating-point inexact exception
+		u32 ZX      :1; //Floating-point zero divide exception
+		u32 UX      :1; //Floating-point underflow exception
+		u32 OX      :1; //Floating-point overflow exception
+		u32 VX      :1; //Floating-point invalid operation exception summary
+		u32 FEX     :1; //Floating-point enabled exception summary
+		u32 FX      :1; //Floating-point exception summary
 	};
 
 	u32 FPSCR;
@@ -113,38 +111,38 @@ union MSRhdr
 		//Little-endian mode enable
 		//0      The processor runs in big-endian mode. 
 		//1      The processor runs in little-endian mode.
-		u64 LE	: 1;
-		
+		u64 LE  : 1;
+
 		//Recoverable exception (for system reset and machine check exceptions).
 		//0      Exception is not recoverable. 
 		//1      Exception is recoverable.
-		u64 RI	: 1;
-		
+		u64 RI  : 1;
+
 		//Reserved
-		u64		: 2;
-		
+		u64     : 2;
+
 		//Data address translation   
 		//0      Data address translation is disabled. 
 		//1      Data address translation is enabled.
-		u64	DR	: 1;
-		
+		u64 DR  : 1;
+
 		//Instruction address translation   
 		//0      Instruction address translation is disabled. 
 		//1      Instruction address translation is enabled.
-		u64	IR	: 1;
+		u64 IR  : 1;
 
-		//Exception preﬁx. The setting of this bit speciﬁes whether an exception vector offset 
+		//Exception prefix. The setting of this bit specifies whether an exception vector offset 
 		//is prepended with Fs or 0s. In the following description, nnnnn is the offset of the 
 		//exception.
 		//0      Exceptions are vectored to the physical address 0x0000_0000_000n_nnnn in 64-bit implementations.
 		//1      Exceptions are vectored to the physical address 0xFFFF_FFFF_FFFn_nnnn in 64-bit implementations.
-		u64	IP	: 1;
+		u64 IP  : 1;
 
 		//Reserved
-		u64		: 1;
+		u64     : 1;
 		
 		//Floating-point exception mode 1
-		u64	FE1	: 1;
+		u64 FE1 : 1;
 
 		//Branch trace enable (Optional)
 		//0      The processor executes branch instructions normally. 
@@ -152,62 +150,62 @@ union MSRhdr
 		//execution of a branch instruction, regardless of whether or not the branch was 
 		//taken. 
 		//Note: If the function is not implemented, this bit is treated as reserved.
-		u64	BE	: 1;
+		u64 BE  : 1;
 
 		//Single-step trace enable (Optional)
 		//0      The processor executes instructions normally. 
 		//1      The processor generates a single-step trace exception upon the successful 
 		//execution of the next instruction.
 		//Note: If the function is not implemented, this bit is treated as reserved.
-		u64	SE	: 1;
+		u64 SE  : 1;
 
 		//Floating-point exception mode 0
-		u64	FE0	: 1;
+		u64 FE0 : 1;
 
 		//Machine check enable 
 		//0      Machine check exceptions are disabled. 
 		//1      Machine check exceptions are enabled.
-		u64	ME	: 1;
+		u64 ME  : 1;
 
 		//Floating-point available 
-		//0      The processor prevents dispatch of ﬂoating-point instructions, including 
-		//ﬂoating-point loads, stores, and moves.
-		//1      The processor can execute ﬂoating-point instructions.
-		u64	FP	: 1;
+		//0      The processor prevents dispatch of floating-point instructions, including 
+		//floating-point loads, stores, and moves.
+		//1      The processor can execute floating-point instructions.
+		u64 FP  : 1;
 
 		//Privilege level 
 		//0      The processor can execute both user- and supervisor-level instructions.
 		//1      The processor can only execute user-level instructions.
-		u64	PR	: 1;
+		u64 PR  : 1;
 
 		//External interrupt enable 
 		//0      While the bit is cleared the processor delays recognition of external interrupts 
 		//and decrementer exception conditions. 
 		//1      The processor is enabled to take an external interrupt or the decrementer 
 		//exception.
-		u64	EE	: 1;
+		u64 EE  : 1;
 
 		//Exception little-endian mode. When an exception occurs, this bit is copied into 
 		//MSR[LE] to select the endian mode for the context established by the exception
-		u64	ILE	: 1;
+		u64 ILE : 1;
 
 		//Reserved
-		u64		: 1;
+		u64     : 1;
 		
 		//Power management enable
 		//0      Power management disabled (normal operation mode).
 		//1      Power management enabled (reduced power mode).
 		//Note: Power management functions are implementation-dependent. If the function 
 		//is not implemented, this bit is treated as reserved.
-		u64	POW	: 1;
+		u64	POW : 1;
 
 		//Reserved
-		u64		: 44;
+		u64     : 44;
 		
 		//Sixty-four bit mode
 		//0      The 64-bit processor runs in 32-bit mode.
 		//1      The 64-bit processor runs in 64-bit mode. Note that this is the default setting.
-		u64	SF	: 1;
+		u64	SF  : 1;
 	};
 
 	u64 MSR;
@@ -230,14 +228,14 @@ union CRhdr
 
 	struct
 	{
-		u8 cr7	: 4;
-		u8 cr6	: 4;
-		u8 cr5	: 4;
-		u8 cr4	: 4;
-		u8 cr3	: 4;
-		u8 cr2	: 4;
-		u8 cr1	: 4;
-		u8 cr0	: 4;
+		u8 cr7  : 4;
+		u8 cr6  : 4;
+		u8 cr5  : 4;
+		u8 cr4  : 4;
+		u8 cr3  : 4;
+		u8 cr2  : 4;
+		u8 cr1  : 4;
+		u8 cr0  : 4;
 	};
 };
 
@@ -247,10 +245,11 @@ union XERhdr
 
 	struct
 	{
-		u64	L	: 61;
-		u64 CA	: 1;
-		u64 OV	: 1;
-		u64 SO	: 1;
+		u32 L  : 29;
+		u32 CA : 1;
+		u32 OV : 1;
+		u32 SO : 1;
+		u32    : 32;
 	};
 };
 
@@ -262,7 +261,7 @@ union VSCRhdr
 	{
 		/*
 		Saturation. A sticky status bit indicating that some field in a saturating instruction saturated since the last
-		time SAT was cleared. In other words when SAT = ‘1’ it remains set to ‘1’ until it is cleared to ‘0’ by an
+		time SAT was cleared. In other words when SAT = '1' it remains set to '1' until it is cleared to '0' by an
 		mtvscr instruction.
 		1	The vector saturate instruction implicitly sets when saturation has occurred on the results one of
 			the vector instructions having saturate in its name:
@@ -279,21 +278,21 @@ union VSCRhdr
 			Vector Convert to Fixed-Point with Saturation (vctuxs, vctsxs)
 		0	Indicates no saturation occurred; mtvscr can explicitly clear this bit.
 		*/
-		u32 SAT	: 1;
-		u32	X	: 15;
+		u32 SAT : 1;
+		u32 X   : 15;
 
 		/*
 		Non-Java. A mode control bit that determines whether vector floating-point operations will be performed
-		in a Java-IEEE-C9X–compliant mode or a possibly faster non-Java/non-IEEE mode.
-		0	The Java-IEEE-C9X–compliant mode is selected. Denormalized values are handled as specified
+		in a Java-IEEE-C9X-compliant mode or a possibly faster non-Java/non-IEEE mode.
+		0	The Java-IEEE-C9X-compliant mode is selected. Denormalized values are handled as specified
 			by Java, IEEE, and C9X standard.
-		1	The non-Java/non-IEEE–compliant mode is selected. If an element in a source vector register
-			contains a denormalized value, the value ‘0’ is used instead. If an instruction causes an underflow
-			exception, the corresponding element in the target VR is cleared to ‘0’. In both cases, the ‘0’
+		1	The non-Java/non-IEEE-compliant mode is selected. If an element in a source vector register
+			contains a denormalized value, the value '0' is used instead. If an instruction causes an underflow
+			exception, the corresponding element in the target VR is cleared to '0'. In both cases, the '0'
 			has the same sign as the denormalized or underflowing value.
 		*/
-		u32 NJ	: 1;
-		u32	Y	: 15;
+		u32 NJ  : 1;
+		u32 Y   : 15;
 	};
 };
 
@@ -327,16 +326,16 @@ struct PPCdouble
 
 		struct
 		{
-			u64 frac	: 52;
-			u64 exp		: 11;
-			u64 sign	: 1;
+			u64 frac  : 52;
+			u64 exp   : 11;
+			u64 sign  : 1;
 		};
 
 		struct
 		{
-			u64		: 51;
+			u64     : 51;
 			u64 nan : 1;
-			u64		: 12;
+			u64     : 12;
 		};
 	};
 
@@ -360,28 +359,28 @@ struct PPCdouble
 		switch(fpc)
 		{
 		case _FPCLASS_SNAN://		return FPR_SNAN;
-		case _FPCLASS_QNAN:		return FPR_QNAN;
-		case _FPCLASS_NINF:		return FPR_NINF;
-		case _FPCLASS_NN:		return FPR_NN;
-		case _FPCLASS_ND:		return FPR_ND;
-		case _FPCLASS_NZ:		return FPR_NZ;
-		case _FPCLASS_PZ:		return FPR_PZ;
-		case _FPCLASS_PD:		return FPR_PD;
-		case _FPCLASS_PN:		return FPR_PN;
-		case _FPCLASS_PINF:		return FPR_PINF;
+		case _FPCLASS_QNAN:  return FPR_QNAN;
+		case _FPCLASS_NINF:  return FPR_NINF;
+		case _FPCLASS_NN:    return FPR_NN;
+		case _FPCLASS_ND:    return FPR_ND;
+		case _FPCLASS_NZ:    return FPR_NZ;
+		case _FPCLASS_PZ:    return FPR_PZ;
+		case _FPCLASS_PD:    return FPR_PD;
+		case _FPCLASS_PN:    return FPR_PN;
+		case _FPCLASS_PINF:  return FPR_PINF;
 		}
 #else
 		switch (fpc)
 		{
-		case FP_NAN:		return FPR_QNAN;
-		case FP_INFINITE:	return std::signbit(_double) ? FPR_NINF : FPR_PINF;
-		case FP_SUBNORMAL:	return std::signbit(_double) ? FPR_ND : FPR_PD;
-		case FP_ZERO:		return std::signbit(_double) ? FPR_NZ : FPR_PZ;
-		default:			return std::signbit(_double) ? FPR_NN : FPR_PN;
+		case FP_NAN:        return FPR_QNAN;
+		case FP_INFINITE:   return std::signbit(_double) ? FPR_NINF : FPR_PINF;
+		case FP_SUBNORMAL:  return std::signbit(_double) ? FPR_ND : FPR_PD;
+		case FP_ZERO:       return std::signbit(_double) ? FPR_NZ : FPR_PZ;
+		default:            return std::signbit(_double) ? FPR_NN : FPR_PN;
 		}
 #endif
 
-		throw wxString::Format("PPCdouble::UpdateType() -> unknown fpclass (0x%04x).", fpc);
+		throw fmt::Format("PPCdouble::UpdateType() -> unknown fpclass (0x%04x).", fpc);
 	}
 
 	FPRType GetType() const
@@ -391,7 +390,7 @@ struct PPCdouble
 
 	u32 To32() const
 	{
-		float res = _double;
+		float res = (float)_double;
 
 		return (u32&)res;
 	}
@@ -401,7 +400,7 @@ struct PPCdouble
 		return (u64&)_double;
 	}
 
-	u32 GetZerosCount()
+	u32 GetZerosCount() const
 	{
 		u32 ret;
 		u32 dd = frac >> 32;
@@ -470,69 +469,13 @@ struct FPRdouble
 	static int Cmp(PPCdouble a, PPCdouble b);
 };
 
-union VPR_reg
-{
-	//__m128i _m128i;
-	u128 _u128;
-	s128 _s128;
-	u64 _u64[2];
-	s64 _s64[2];
-	u32 _u32[4];
-	s32 _s32[4];
-	u16 _u16[8];
-	s16 _s16[8];
-	u8  _u8[16];
-	s8  _s8[16];
-	float _f[4];
-	double _d[2];
-
-	VPR_reg() { Clear(); }
-
-	wxString ToString(bool hex=false) const
-	{
-		if(hex) return wxString::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
-
-		return wxString::Format("x: %g y: %g z: %g w: %g", _f[3], _f[2], _f[1], _f[0]);
-	}
-
-	u8 GetBit(u8 bit)
-	{
-		if(bit < 64) return (_u64[0] >> bit) & 0x1;
-
-		return (_u64[1] >> (bit - 64)) & 0x1;
-	}
-
-	void SetBit(u8 bit, u8 value)
-	{
-		if(bit < 64)
-		{
-			_u64[0] &= ~(1 << bit);
-			_u64[0] |= (value & 0x1) << bit;
-
-			return;
-		}
-
-		bit -= 64;
-
-		_u64[1] &= ~(1 << bit);
-		_u64[1] |= (value & 0x1) << bit;
-	}
-
-	void Clear() { memset(this, 0, sizeof(*this)); }
-};
-
-static const s32 MAX_INT_VALUE = 0x7fffffff;
-
 class PPUThread : public PPCThread
 {
-public:
-	std::atomic<u32> owned_mutexes;
-
 public:
 	PPCdouble FPR[32]; //Floating Point Register
 	FPSCRhdr FPSCR; //Floating Point Status and Control Register
 	u64 GPR[32]; //General-Purpose Register
-	VPR_reg VPR[32];
+	u128 VPR[32];
 	u32 vpcr;
 
 	CRhdr CR; //Condition Register
@@ -585,14 +528,11 @@ public:
 
 	VSCRhdr VSCR; // Vector Status and Control Register
 
-	u64 LR;		//SPR 0x008 : Link Register
-	u64 CTR;	//SPR 0x009 : Count Register
+	u64 LR;     //SPR 0x008 : Link Register
+	u64 CTR;    //SPR 0x009 : Count Register
 
-	union
-	{
-		u64 USPRG0;	//SPR 0x100 : User-SPR General-Purpose Register 0
-		u64 SPRG[8]; //SPR 0x100 - 0x107 : SPR General-Purpose Registers
-	};
+	u64 USPRG[8];	//SPR 0x100 - 0x107: User-SPR General-Purpose Registers
+	u64 SPRG[8]; //SPR 0x110 - 0x117 : SPR General-Purpose Registers
 
 	//TBR : Time-Base Registers
 	union
@@ -607,6 +547,12 @@ public:
 	};
 
 	u64 cycle;
+
+	u64 R_ADDR; // reservation address
+	u64 R_VALUE; // reservation value (BE)
+
+	u32 owned_mutexes;
+	std::function<void(PPUThread& CPU)> custom_task;
 
 public:
 	PPUThread();
@@ -648,14 +594,14 @@ public:
 	{
 		switch(n)
 		{
-		case 0: value ? CR.cr0 |= bit : CR.cr0 &= ~bit; break;
-		case 1: value ? CR.cr1 |= bit : CR.cr1 &= ~bit; break;
-		case 2: value ? CR.cr2 |= bit : CR.cr2 &= ~bit; break;
-		case 3: value ? CR.cr3 |= bit : CR.cr3 &= ~bit; break;
-		case 4: value ? CR.cr4 |= bit : CR.cr4 &= ~bit; break;
-		case 5: value ? CR.cr5 |= bit : CR.cr5 &= ~bit; break;
-		case 6: value ? CR.cr6 |= bit : CR.cr6 &= ~bit; break;
-		case 7: value ? CR.cr7 |= bit : CR.cr7 &= ~bit; break;
+		case 0: CR.cr0 = (value ? CR.cr0 | bit : CR.cr0 & ~bit); break;
+		case 1: CR.cr1 = (value ? CR.cr1 | bit : CR.cr1 & ~bit); break;
+		case 2: CR.cr2 = (value ? CR.cr2 | bit : CR.cr2 & ~bit); break;
+		case 3: CR.cr3 = (value ? CR.cr3 | bit : CR.cr3 & ~bit); break;
+		case 4: CR.cr4 = (value ? CR.cr4 | bit : CR.cr4 & ~bit); break;
+		case 5: CR.cr5 = (value ? CR.cr5 | bit : CR.cr5 & ~bit); break;
+		case 6: CR.cr6 = (value ? CR.cr6 | bit : CR.cr6 & ~bit); break;
+		case 7: CR.cr7 = (value ? CR.cr7 | bit : CR.cr7 & ~bit); break;
 		}
 	}
 
@@ -670,9 +616,9 @@ public:
 
 	template<typename T> void UpdateCRn(const u8 n, const T a, const T b)
 	{
-		if		(a <  b) SetCR(n, CR_LT);
-		else if	(a >  b) SetCR(n, CR_GT);
-		else if	(a == b) SetCR(n, CR_EQ);
+		if      (a <  b) SetCR(n, CR_LT);
+		else if (a >  b) SetCR(n, CR_GT);
+		else if (a == b) SetCR(n, CR_EQ);
 
 		SetCR_SO(n, XER.SO);
 	}
@@ -685,7 +631,7 @@ public:
 		}
 		else
 		{
-			UpdateCRn<u32>(n, a, b);
+			UpdateCRn<u32>(n, (u32)a, (u32)b);
 		}
 	}
 
@@ -693,11 +639,11 @@ public:
 	{
 		if(l)
 		{
-			UpdateCRn<s64>(n, a, b);
+			UpdateCRn<s64>(n, (s64)a, (s64)b);
 		}
 		else
 		{
-			UpdateCRn<s32>(n, a, b);
+			UpdateCRn<s32>(n, (s32)a, (s32)b);
 		}
 	}
 
@@ -721,7 +667,8 @@ public:
 
 	const u8 IsCR(const u32 bit) const { return (GetCR(bit >> 2) & GetCRBit(bit)) ? 1 : 0; }
 
-	bool IsCarry(const u64 a, const u64 b) { return a > (a + b); }
+	bool IsCarry(const u64 a, const u64 b) { return (a + b) < a; }
+	bool IsCarry(const u64 a, const u64 b, const u64 c) { return IsCarry(a, b) || IsCarry(a + b, c); }
 
 	void SetFPSCRException(const FPSCR_EXP mask)
 	{
@@ -735,120 +682,133 @@ public:
 		FPSCR.FI = val;
 	}
 
-	virtual wxString RegsToString()
+	virtual std::string RegsToString()
 	{
-		wxString ret = "Registers:\n=========\n";
+		std::string ret = "Registers:\n=========\n";
 
-		for(uint i=0; i<32; ++i) ret += wxString::Format("GPR[%d] = 0x%llx\n", i, GPR[i]);
-		for(uint i=0; i<32; ++i) ret += wxString::Format("FPR[%d] = %.6G\n", i, (double)FPR[i]);
-		for(uint i=0; i<32; ++i) ret += wxString::Format("VPR[%d] = 0x%s [%s]\n", i, (const char*)VPR[i].ToString(true).wx_str(), (const char*)VPR[i].ToString().wx_str());
-		ret += wxString::Format("CR = 0x%08x\n", CR.CR);
-		ret += wxString::Format("LR = 0x%llx\n", LR);
-		ret += wxString::Format("CTR = 0x%llx\n", CTR);
-		ret += wxString::Format("XER = 0x%llx [CA=%lld | OV=%lld | SO=%lld]\n", XER.XER, XER.CA, XER.OV, XER.SO);
-		ret += wxString::Format("FPSCR = 0x%x "
+		for(uint i=0; i<32; ++i) ret += fmt::Format("GPR[%d] = 0x%llx\n", i, GPR[i]);
+		for(uint i=0; i<32; ++i) ret += fmt::Format("FPR[%d] = %.6G\n", i, (double)FPR[i]);
+		for(uint i=0; i<32; ++i) ret += fmt::Format("VPR[%d] = 0x%s [%s]\n", i, VPR[i].to_hex().c_str(), VPR[i].to_xyzw().c_str());
+		ret += fmt::Format("CR = 0x%08x\n", CR.CR);
+		ret += fmt::Format("LR = 0x%llx\n", LR);
+		ret += fmt::Format("CTR = 0x%llx\n", CTR);
+		ret += fmt::Format("XER = 0x%llx [CA=%lld | OV=%lld | SO=%lld]\n", XER.XER, fmt::by_value(XER.CA), fmt::by_value(XER.OV), fmt::by_value(XER.SO));
+		ret += fmt::Format("FPSCR = 0x%x "
 			"[RN=%d | NI=%d | XE=%d | ZE=%d | UE=%d | OE=%d | VE=%d | "
 			"VXCVI=%d | VXSQRT=%d | VXSOFT=%d | FPRF=%d | "
 			"FI=%d | FR=%d | VXVC=%d | VXIMZ=%d | "
 			"VXZDZ=%d | VXIDI=%d | VXISI=%d | VXSNAN=%d | "
 			"XX=%d | ZX=%d | UX=%d | OX=%d | VX=%d | FEX=%d | FX=%d]\n",
 			FPSCR.FPSCR,
-			FPSCR.RN,
-			FPSCR.NI, FPSCR.XE, FPSCR.ZE, FPSCR.UE, FPSCR.OE, FPSCR.VE,
-			FPSCR.VXCVI, FPSCR.VXSQRT, FPSCR.VXSOFT, FPSCR.FPRF,
-			FPSCR.FI, FPSCR.FR, FPSCR.VXVC, FPSCR.VXIMZ,
-			FPSCR.VXZDZ, FPSCR.VXIDI, FPSCR.VXISI, FPSCR.VXSNAN,
-			FPSCR.XX, FPSCR.ZX, FPSCR.UX, FPSCR.OX, FPSCR.VX, FPSCR.FEX, FPSCR.FX);
+			fmt::by_value(FPSCR.RN),
+			fmt::by_value(FPSCR.NI), fmt::by_value(FPSCR.XE), fmt::by_value(FPSCR.ZE), fmt::by_value(FPSCR.UE), fmt::by_value(FPSCR.OE), fmt::by_value(FPSCR.VE),
+			fmt::by_value(FPSCR.VXCVI), fmt::by_value(FPSCR.VXSQRT), fmt::by_value(FPSCR.VXSOFT), fmt::by_value(FPSCR.FPRF),
+			fmt::by_value(FPSCR.FI), fmt::by_value(FPSCR.FR), fmt::by_value(FPSCR.VXVC), fmt::by_value(FPSCR.VXIMZ),
+			fmt::by_value(FPSCR.VXZDZ), fmt::by_value(FPSCR.VXIDI), fmt::by_value(FPSCR.VXISI), fmt::by_value(FPSCR.VXSNAN),
+			fmt::by_value(FPSCR.XX), fmt::by_value(FPSCR.ZX), fmt::by_value(FPSCR.UX), fmt::by_value(FPSCR.OX), fmt::by_value(FPSCR.VX), fmt::by_value(FPSCR.FEX), fmt::by_value(FPSCR.FX));
 
 		return ret;
 	}
 
-	virtual wxString ReadRegString(wxString reg)
+	virtual std::string ReadRegString(const std::string& reg)
 	{
-		if (reg.Contains("["))
+		std::string::size_type first_brk = reg.find('[');
+		if (first_brk != std::string::npos)
 		{
-			long reg_index;
-			reg.AfterFirst('[').RemoveLast().ToLong(&reg_index);
-			if (reg.StartsWith("GPR")) return wxString::Format("%016llx", GPR[reg_index]);
-			if (reg.StartsWith("FPR")) return wxString::Format("%016llx", (double)FPR[reg_index]);
-			if (reg.StartsWith("VPR")) return wxString::Format("%016llx%016llx", VPR[reg_index]._u64[1], VPR[reg_index]._u64[0]);
+			long reg_index = atol(reg.substr(first_brk+1,reg.length()-first_brk-2).c_str());
+			if (reg.find("GPR")==0) return fmt::Format("%016llx", GPR[reg_index]);
+			if (reg.find("FPR")==0) return fmt::Format("%016llx", (double)FPR[reg_index]);
+			if (reg.find("VPR")==0) return fmt::Format("%016llx%016llx", VPR[reg_index]._u64[1], VPR[reg_index]._u64[0]);
 		}
-		if (reg == "CR")	return wxString::Format("%08x", CR.CR);
-		if (reg == "LR")	return wxString::Format("%016llx", LR);
-		if (reg == "CTR")	return wxString::Format("%016llx", CTR);
-		if (reg == "XER")	return wxString::Format("%016llx", XER.XER);
-		if (reg == "FPSCR")	return wxString::Format("%08x", FPSCR.FPSCR);
+		if (reg == "CR")    return fmt::Format("%08x", CR.CR);
+		if (reg == "LR")    return fmt::Format("%016llx", LR);
+		if (reg == "CTR")   return fmt::Format("%016llx", CTR);
+		if (reg == "XER")   return fmt::Format("%016llx", XER.XER);
+		if (reg == "FPSCR") return fmt::Format("%08x", FPSCR.FPSCR);
 
-		return wxEmptyString;
+		return "";
 	}
 
-	bool WriteRegString(wxString reg, wxString value) {
-		while (value.Len() < 32) value = "0"+value;
-		if (reg.Contains("["))
+	bool WriteRegString(const std::string& reg, std::string value) {
+		while (value.length() < 32) value = "0"+value;
+		std::string::size_type first_brk = reg.find('[');
+		try
 		{
-			long reg_index;
-			reg.AfterFirst('[').RemoveLast().ToLong(&reg_index);
-			if (reg.StartsWith("GPR") || (reg.StartsWith("FPR")))
+			if (first_brk != std::string::npos)
+			{
+				long reg_index = atol(reg.substr(first_brk + 1, reg.length() - first_brk - 2).c_str());
+				if (reg.find("GPR")==0 || reg.find("FPR")==0 )
+				{
+					unsigned long long reg_value;
+					reg_value = std::stoull(value.substr(16, 31),0,16);
+					if (reg.find("GPR")==0) GPR[reg_index] = (u64)reg_value;
+					if (reg.find("FPR")==0) FPR[reg_index] = (u64)reg_value;
+					return true;
+				}
+				if (reg.find("VPR")==0)
+				{
+					unsigned long long reg_value0;
+					unsigned long long reg_value1;
+					reg_value0 = std::stoull(value.substr(16, 31), 0, 16);
+					reg_value1 = std::stoull(value.substr(0, 15), 0, 16);
+					VPR[reg_index]._u64[0] = (u64)reg_value0;
+					VPR[reg_index]._u64[1] = (u64)reg_value1;
+					return true;
+				}
+			}
+			if (reg == "LR" || reg == "CTR" || reg == "XER")
 			{
 				unsigned long long reg_value;
-				if (!value.SubString(16,31).ToULongLong(&reg_value, 16)) return false;
-				if (reg.StartsWith("GPR")) GPR[reg_index] = (u64)reg_value;
-				if (reg.StartsWith("FPR")) FPR[reg_index] = (u64)reg_value;
+				reg_value = std::stoull(value.substr(16, 31), 0, 16);
+				if (reg == "LR") LR = (u64)reg_value;
+				if (reg == "CTR") CTR = (u64)reg_value;
+				if (reg == "XER") XER.XER = (u64)reg_value;
 				return true;
 			}
-			if (reg.StartsWith("VPR"))
+			if (reg == "CR" || reg == "FPSCR")
 			{
-				unsigned long long reg_value0;
-				unsigned long long reg_value1;
-				if (!value.SubString(16,31).ToULongLong(&reg_value0, 16)) return false;
-				if (!value.SubString(0,15).ToULongLong(&reg_value1, 16)) return false;
-				VPR[reg_index]._u64[0] = (u64)reg_value0;
-				VPR[reg_index]._u64[1] = (u64)reg_value1;
+				unsigned long long reg_value;
+				reg_value = std::stoull(value.substr(24, 31), 0, 16);
+				if (reg == "CR") CR.CR = (u32)reg_value;
+				if (reg == "FPSCR") FPSCR.FPSCR = (u32)reg_value;
 				return true;
 			}
 		}
-		if (reg == "LR" || reg == "CTR" || reg == "XER")
+		catch (std::invalid_argument&)//if any of the stoull conversion fail
 		{
-			unsigned long long reg_value;
-			if (!value.SubString(16,31).ToULongLong(&reg_value, 16)) return false;
-			if (reg == "LR") LR = (u64)reg_value;
-			if (reg == "CTR") CTR = (u64)reg_value;
-			if (reg == "XER") XER.XER = (u64)reg_value;
-			return true;
-		}
-		if (reg == "CR" || reg == "FPSCR")
-		{
-			unsigned long reg_value;
-			if (!value.SubString(24,31).ToULong(&reg_value, 16)) return false;
-			if (reg == "CR") CR.CR = (u32)reg_value;
-			if (reg == "FPSCR") FPSCR.FPSCR = (u32)reg_value;
-			return true;
+			return false;
 		}
 		return false;
 	}
 
-	virtual void AddArgv(const wxString& arg) override;
-
 public:
-	virtual void InitRegs(); 
-	virtual u64 GetFreeStackSize() const;
+	virtual void InitRegs();
+	virtual void Task();
+	u64 GetStackArg(s32 i);
+	u64 FastCall2(u32 addr, u32 rtoc);
+	void FastStop();
+	virtual void DoRun() override;
 
 protected:
 	virtual void DoReset() override;
-	virtual void DoRun() override;
 	virtual void DoPause() override;
 	virtual void DoResume() override;
 	virtual void DoStop() override;
-
-protected:
-	virtual void Step() override
-	{
-		//if(++cycle > 20)
-		{
-			TB++;
-			//cycle = 0;
-		}
-	}
 };
 
 PPUThread& GetCurrentPPUThread();
+
+class ppu_thread : cpu_thread
+{
+	static const u32 stack_align = 0x10;
+	vm::ptr<u64> argv;
+	u32 argc;
+	vm::ptr<u64> envp;
+
+public:
+	ppu_thread(u32 entry, const std::string& name = "", u32 stack_size = 0, u32 prio = 0);
+
+	cpu_thread& args(std::initializer_list<std::string> values) override;
+	cpu_thread& run() override;
+	ppu_thread& gpr(uint index, u64 value);
+};

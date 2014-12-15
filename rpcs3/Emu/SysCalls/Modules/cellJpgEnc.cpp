@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellJpgEnc_init();
 Module cellJpgEnc(0x003d, cellJpgEnc_init);
@@ -8,12 +7,12 @@ Module cellJpgEnc(0x003d, cellJpgEnc_init);
 // Error Codes
 enum
 {
-	CELL_JPGENC_ERROR_ARG	= 0x80611191,
-	CELL_JPGENC_ERROR_SEQ	= 0x80611192,
-	CELL_JPGENC_ERROR_BUSY	= 0x80611193,
-	CELL_JPGENC_ERROR_EMPTY	= 0x80611194,
-	CELL_JPGENC_ERROR_RESET	= 0x80611195,
-	CELL_JPGENC_ERROR_FATAL	= 0x80611196,
+	CELL_JPGENC_ERROR_ARG   = 0x80611191,
+	CELL_JPGENC_ERROR_SEQ   = 0x80611192,
+	CELL_JPGENC_ERROR_BUSY  = 0x80611193,
+	CELL_JPGENC_ERROR_EMPTY = 0x80611194,
+	CELL_JPGENC_ERROR_RESET = 0x80611195,
+	CELL_JPGENC_ERROR_FATAL = 0x80611196,
 };
 
 int cellJpgEncQueryAttr()
@@ -89,3 +88,4 @@ void cellJpgEnc_init()
 	cellJpgEnc.AddFunc(0x4262e880, cellJpgEncGetStreamInfo);
 	cellJpgEnc.AddFunc(0x0cf2b78b, cellJpgEncReset);
 }
+#endif

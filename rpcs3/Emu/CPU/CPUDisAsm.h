@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Emu/Memory/Memory.h"
-
 enum CPUDisAsmMode
 {
 	CPUDisAsm_DumpMode,
@@ -15,24 +13,24 @@ class CPUDisAsm
 protected:
 	const CPUDisAsmMode m_mode;
 
-	virtual void Write(const wxString& value)
+	virtual void Write(const std::string& value)
 	{
 		switch(m_mode)
 		{
 			case CPUDisAsm_DumpMode:
-				last_opcode = wxString::Format("\t%08llx:\t%02x %02x %02x %02x\t%s\n", dump_pc,
-					Memory.Read8(offset + dump_pc),
-					Memory.Read8(offset + dump_pc + 1),
-					Memory.Read8(offset + dump_pc + 2),
-					Memory.Read8(offset + dump_pc + 3), value.wx_str());
+				last_opcode = fmt::Format("\t%08x:\t%02x %02x %02x %02x\t%s\n", dump_pc,
+					offset[dump_pc],
+					offset[dump_pc + 1],
+					offset[dump_pc + 2],
+					offset[dump_pc + 3], value.c_str());
 			break;
 
 			case CPUDisAsm_InterpreterMode:
-				last_opcode = wxString::Format("[%08llx]  %02x %02x %02x %02x: %s", dump_pc,
-					Memory.Read8(offset + dump_pc),
-					Memory.Read8(offset + dump_pc + 1),
-					Memory.Read8(offset + dump_pc + 2),
-					Memory.Read8(offset + dump_pc + 3), value.wx_str());
+				last_opcode = fmt::Format("[%08x]  %02x %02x %02x %02x: %s", dump_pc,
+					offset[dump_pc],
+					offset[dump_pc + 1],
+					offset[dump_pc + 2],
+					offset[dump_pc + 3], value.c_str());
 			break;
 
 			case CPUDisAsm_CompilerElfMode:
@@ -42,9 +40,9 @@ protected:
 	}
 
 public:
-	wxString last_opcode;
-	u64 dump_pc;
-	u64 offset;
+	std::string last_opcode;
+	u32 dump_pc;
+	u8* offset;
 
 protected:
 	CPUDisAsm(CPUDisAsmMode mode) 
@@ -55,9 +53,9 @@ protected:
 
 	virtual u32 DisAsmBranchTarget(const s32 imm)=0;
 
-	wxString FixOp(wxString op)
+	std::string FixOp(std::string op)
 	{
-		op.Append(' ', max<int>(8 - op.Len(), 0));
+		op.append(std::max<int>(10 - (int)op.length(), 0),' ');
 		return op;
 	}
 };

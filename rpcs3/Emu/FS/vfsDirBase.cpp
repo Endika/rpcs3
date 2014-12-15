@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Utilities/rFile.h"
 #include "vfsDirBase.h"
 
 vfsDirBase::vfsDirBase(vfsDevice* device)
@@ -11,7 +12,7 @@ vfsDirBase::~vfsDirBase()
 {
 }
 
-bool vfsDirBase::Open(const wxString& path)
+bool vfsDirBase::Open(const std::string& path)
 {
 	if(IsOpened())
 		Close();
@@ -26,34 +27,40 @@ bool vfsDirBase::Open(const wxString& path)
 
 bool vfsDirBase::IsOpened() const
 {
-	return !m_cwd.IsEmpty();
+	return !m_cwd.empty();
 }
 
-bool vfsDirBase::IsExists(const wxString& path) const
+bool vfsDirBase::IsExists(const std::string& path) const
 {
-	return wxDirExists(path);
+	return false;
 }
 
-const Array<DirEntryInfo>& vfsDirBase::GetEntries() const
+const std::vector<DirEntryInfo>& vfsDirBase::GetEntries() const
 {
 	return m_entries;
 }
 
 void vfsDirBase::Close()
 {
-	m_cwd = wxEmptyString;
-	m_entries.Clear();
+	m_cwd = "";
+	m_entries.clear();
 }
 
-wxString vfsDirBase::GetPath() const
+std::string vfsDirBase::GetPath() const
 {
 	return m_cwd;
 }
 
 const DirEntryInfo* vfsDirBase::Read()
 {
-	if (m_pos >= m_entries.GetCount())
+	if (m_pos >= m_entries.size())
 		return nullptr;
 
 	return &m_entries[m_pos++];
+}
+
+const DirEntryInfo* vfsDirBase::First()
+{
+	m_pos = 0;
+	return Read();
 }

@@ -1,20 +1,30 @@
 #pragma once
 
-#include <atomic>
-#include "Gui/MemoryViewer.h"
-#include "Emu/CPU/CPUThreadManager.h"
-#include "Emu/Io/Pad.h"
-#include "Emu/Io/Keyboard.h"
-#include "Emu/Io/Mouse.h"
-#include "Emu/GS/GSManager.h"
-#include "Emu/Audio/AudioManager.h"
-#include "Emu/FS/VFS.h"
-#include "Emu/DbgConsole.h"
 #include "Loader/Loader.h"
-#include "SysCalls/Callback.h"
+#include "Emu/SysCalls/SyncPrimitivesManager.h"
 
+enum Status
+{
+	Running,
+	Paused,
+	Stopped,
+	Ready,
+};
+
+class CPUThreadManager;
+class PadManager;
+class KeyboardManager;
+class MouseManager;
+class IdManager;
+class GSManager;
+class AudioManager;
+class CallbackManager;
+class CPUThread;
 class EventManager;
-extern void UnloadModules();
+class ModuleManager;
+class StaticFuncManager;
+class SyncPrimManager;
+struct VFS;
 
 struct EmuInfo
 {
@@ -35,9 +45,10 @@ public:
 		SetTLSData(0, 0, 0);
 		memset(&proc_param, 0, sizeof(sys_process_param_info));
 
-		proc_param.malloc_pagesize = 0x100000;
-		proc_param.sdk_version = 0x360001;
-		//TODO
+		proc_param.malloc_pagesize = be_t<u32>::make(0x100000);
+		proc_param.sdk_version = be_t<u32>::make(0x360001);
+		proc_param.primary_stacksize = be_t<u32>::make(0x100000);
+		proc_param.primary_prio = be_t<s32>::make(0x50);
 	}
 
 	void SetTLSData(const u64 addr, const u64 filesz, const u64 memsz)
@@ -73,64 +84,102 @@ class Emulator
 	uint m_mode;
 
 	u32 m_rsx_callback;
-	u32 m_ppu_thr_exit;
-	MemoryViewerPanel* m_memory_viewer;
-	//ArrayF<CPUThread> m_cpu_threads;
-	ArrayF<ModuleInitializer> m_modules_init;
+	u32 m_cpu_thr_exit;
+	u32 m_cpu_thr_stop;
+	std::vector<std::unique_ptr<ModuleInitializer>> m_modules_init;
 
-	Array<u64> m_break_points;
-	Array<u64> m_marked_points;
+	std::vector<u64> m_break_points;
+	std::vector<u64> m_marked_points;
 
-	CPUThreadManager m_thread_manager;
-	PadManager m_pad_manager;
-	KeyboardManager m_keyboard_manager;
-	MouseManager m_mouse_manager;
-	IdManager m_id_manager;
-	DbgConsole* m_dbg_console;
-	GSManager m_gs_manager;
-	AudioManager m_audio_manager;
-	CallbackManager m_callback_manager;
-	CPUThread* m_ppu_callback_thr;
-	std::unique_ptr<EventManager> m_event_manager;
+	std::recursive_mutex m_core_mutex;
 
-	VFS m_vfs;
+	CPUThreadManager* m_thread_manager;
+	PadManager* m_pad_manager;
+	KeyboardManager* m_keyboard_manager;
+	MouseManager* m_mouse_manager;
+	IdManager* m_id_manager;
+	GSManager* m_gs_manager;
+	AudioManager* m_audio_manager;
+	CallbackManager* m_callback_manager;
+	EventManager* m_event_manager;
+	StaticFuncManager* m_sfunc_manager;
+	ModuleManager* m_module_manager;
+	SyncPrimManager* m_sync_prim_manager;
+	VFS* m_vfs;
 
 	EmuInfo m_info;
+	loader::loader m_loader;
 
 public:
-	wxString m_path;
-	wxString m_elf_path;
-	wxString m_title_id;
+	std::string m_path;
+	std::string m_elf_path;
+	std::string m_emu_path;
+	std::string m_title_id;
+	s32 m_sdk_version;
 
 	Emulator();
+	~Emulator();
 
 	void Init();
-	void SetPath(const wxString& path, const wxString& elf_path = wxEmptyString);
-	void SetTitleID(const wxString& id);
+	void SetPath(const std::string& path, const std::string& elf_path = "");
+	void SetTitleID(const std::string& id);
 
-	CPUThreadManager&	GetCPU()				{ return m_thread_manager; }
-	PadManager&			GetPadManager()			{ return m_pad_manager; }
-	KeyboardManager&	GetKeyboardManager()	{ return m_keyboard_manager; }
-	MouseManager&		GetMouseManager()		{ return m_mouse_manager; }
-	IdManager&			GetIdManager()			{ return m_id_manager; }
-	DbgConsole&			GetDbgCon()				{ return *m_dbg_console; }
-	GSManager&			GetGSManager()			{ return m_gs_manager; }
-	AudioManager&		GetAudioManager()		{ return m_audio_manager; }
-	CallbackManager&	GetCallbackManager()	{ return m_callback_manager; }
-	VFS&				GetVFS()				{ return m_vfs; }
-	Array<u64>&			GetBreakPoints()		{ return m_break_points; }
-	Array<u64>&			GetMarkedPoints()		{ return m_marked_points; }
-	CPUThread&			GetCallbackThread()		{ return *m_ppu_callback_thr; }
-	EventManager&		GetEventManager()		{ return *m_event_manager; }
-	
-	void AddModuleInit(ModuleInitializer* m)
+	std::string GetPath() const
 	{
-		m_modules_init.Add(m);
+		return m_elf_path;
+	}
+
+	std::string GetEmulatorPath() const
+	{
+		return m_emu_path;
+	}
+
+	void SetEmulatorPath(const std::string& path)
+	{
+		m_emu_path = path;
+	}
+
+	std::recursive_mutex& GetCoreMutex()   { return m_core_mutex; }
+
+	CPUThreadManager& GetCPU()             { return *m_thread_manager; }
+	PadManager&       GetPadManager()      { return *m_pad_manager; }
+	KeyboardManager&  GetKeyboardManager() { return *m_keyboard_manager; }
+	MouseManager&     GetMouseManager()    { return *m_mouse_manager; }
+	IdManager&        GetIdManager()       { return *m_id_manager; }
+	GSManager&        GetGSManager()       { return *m_gs_manager; }
+	AudioManager&     GetAudioManager()    { return *m_audio_manager; }
+	CallbackManager&  GetCallbackManager() { return *m_callback_manager; }
+	VFS&              GetVFS()             { return *m_vfs; }
+	std::vector<u64>& GetBreakPoints()     { return m_break_points; }
+	std::vector<u64>& GetMarkedPoints()    { return m_marked_points; }
+	EventManager&     GetEventManager()    { return *m_event_manager; }
+	StaticFuncManager& GetSFuncManager()   { return *m_sfunc_manager; }
+	ModuleManager&    GetModuleManager()   { return *m_module_manager; }
+	SyncPrimManager&  GetSyncPrimManager() { return *m_sync_prim_manager; }
+
+	void AddModuleInit(std::unique_ptr<ModuleInitializer> m)
+	{
+		m_modules_init.push_back(std::move(m));
 	}
 
 	void SetTLSData(const u64 addr, const u64 filesz, const u64 memsz)
 	{
 		m_info.SetTLSData(addr, filesz, memsz);
+	}
+
+	void SetRSXCallback(u32 addr)
+	{
+		m_rsx_callback = addr;
+	}
+
+	void SetCPUThreadExit(u32 addr)
+	{
+		m_cpu_thr_exit = addr;
+	}
+
+	void SetCPUThreadStop(u32 addr)
+	{
+		m_cpu_thr_stop = addr;
 	}
 
 	EmuInfo& GetInfo() { return m_info; }
@@ -142,10 +191,11 @@ public:
 	u32 GetMallocPageSize() { return m_info.GetProcParam().malloc_pagesize; }
 
 	u32 GetRSXCallback() const { return m_rsx_callback; }
-	u32 GetPPUThreadExit() const { return m_ppu_thr_exit; }
+	u32 GetCPUThreadExit() const { return m_cpu_thr_exit; }
+	u32 GetCPUThreadStop() const { return m_cpu_thr_stop; }
 
 	void CheckStatus();
-	bool BootGame(const std::string& path);
+	bool BootGame(const std::string& path, bool direct = false, int device = 0);
 
 	void Load();
 	void Run();
@@ -156,10 +206,18 @@ public:
 	void SavePoints(const std::string& path);
 	void LoadPoints(const std::string& path);
 
-	__forceinline bool IsRunning()	const { return m_status == Running; }
-	__forceinline bool IsPaused()	const { return m_status == Paused; }
-	__forceinline bool IsStopped()	const { return m_status == Stopped; }
-	__forceinline bool IsReady()	const { return m_status == Ready; }
+	__forceinline bool IsRunning() const { return m_status == Running; }
+	__forceinline bool IsPaused()  const { return m_status == Paused; }
+	__forceinline bool IsStopped() const { return m_status == Stopped; }
+	__forceinline bool IsReady()   const { return m_status == Ready; }
 };
 
+#define LV2_LOCK(x) std::lock_guard<std::recursive_mutex> core_lock##x(Emu.GetCoreMutex())
+
 extern Emulator Emu;
+
+typedef void(*CallAfterCbType)(std::function<void()> func);
+
+void CallAfter(std::function<void()> func);
+
+void SetCallAfterCallback(CallAfterCbType cb);

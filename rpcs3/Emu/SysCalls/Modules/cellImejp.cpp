@@ -1,6 +1,5 @@
 #include "stdafx.h"
-#include "Emu/SysCalls/SysCalls.h"
-#include "Emu/SysCalls/SC_FUNC.h"
+#if 0
 
 void cellImejp_init();
 Module cellImejp(0xf023, cellImejp_init);
@@ -8,13 +7,13 @@ Module cellImejp(0xf023, cellImejp_init);
 // Return Codes
 enum
 {
-	CELL_IMEJP_ERROR_ERR				= 0x8002bf01,
-	CELL_IMEJP_ERROR_CONTEXT			= 0x8002bf11,
-	CELL_IMEJP_ERROR_ALREADY_OPEN		= 0x8002bf21,
-	CELL_IMEJP_ERROR_DIC_OPEN			= 0x8002bf31,
-	CELL_IMEJP_ERROR_PARAM				= 0x8002bf41,
-	CELL_IMEJP_ERROR_IME_ALREADY_IN_USE	= 0x8002bf51,
-	CELL_IMEJP_ERROR_OTHER				= 0x8002bfff,
+	CELL_IMEJP_ERROR_ERR                = 0x8002bf01,
+	CELL_IMEJP_ERROR_CONTEXT            = 0x8002bf11,
+	CELL_IMEJP_ERROR_ALREADY_OPEN       = 0x8002bf21,
+	CELL_IMEJP_ERROR_DIC_OPEN           = 0x8002bf31,
+	CELL_IMEJP_ERROR_PARAM              = 0x8002bf41,
+	CELL_IMEJP_ERROR_IME_ALREADY_IN_USE = 0x8002bf51,
+	CELL_IMEJP_ERROR_OTHER              = 0x8002bfff,
 };
 
 int cellImeJpOpen()
@@ -304,3 +303,4 @@ void cellImejp_init()
 	cellImejp.AddFunc(0x1986f2cd, cellImeJpGetPredictList);
 	cellImejp.AddFunc(0xeede898c, cellImeJpConfirmPrediction);
 }
+#endif

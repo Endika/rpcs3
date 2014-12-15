@@ -1,7 +1,27 @@
 #include "stdafx.h"
-#include "Keyboard.h"
+#include "rpcs3/Ini.h"
 #include "Null/NullKeyboardHandler.h"
-#include "Windows/WindowsKeyboardHandler.h"
+#include "Keyboard.h"
+
+GetKeyboardHandlerCountCb GetKeyboardHandlerCount = []()
+{
+	return 1;
+};
+
+GetKeyboardHandlerCb GetKeyboardHandler = [](int i) -> KeyboardHandlerBase*
+{
+	return new NullKeyboardHandler;
+};
+
+void SetGetKeyboardHandlerCountCallback(GetKeyboardHandlerCountCb cb)
+{
+	GetKeyboardHandlerCount = cb;
+}
+
+void SetGetKeyboardHandlerCallback(GetKeyboardHandlerCb cb)
+{
+	GetKeyboardHandler = cb;
+}
 
 KeyboardManager::KeyboardManager()
 	: m_keyboard_handler(nullptr)
@@ -15,15 +35,17 @@ KeyboardManager::~KeyboardManager()
 
 void KeyboardManager::Init(const u32 max_connect)
 {
-	if(m_inited) return;
+	if(m_inited)
+		return;
 
-	switch(Ini.KeyboardHandlerMode.GetValue())
+	// NOTE: Change these to std::make_unique assignments when C++14 comes out.
+	int numHandlers = GetKeyboardHandlerCount();
+	int selectedHandler = Ini.KeyboardHandlerMode.GetValue();
+	if (selectedHandler > numHandlers)
 	{
-	case 1: m_keyboard_handler = new WindowsKeyboardHandler(); break;
-
-	default:
-	case 0: m_keyboard_handler = new NullKeyboardHandler(); break;
+		selectedHandler = 0;
 	}
+	m_keyboard_handler.reset(GetKeyboardHandler(selectedHandler));
 
 	m_keyboard_handler->Init(max_connect);
 	m_inited = true;
