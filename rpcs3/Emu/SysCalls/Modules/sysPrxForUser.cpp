@@ -3,8 +3,10 @@
 #include "Emu/System.h"
 #include "Emu/SysCalls/Modules.h"
 #include "Emu/SysCalls/CB_FUNC.h"
+#include "Emu/Memory/atomic_type.h"
 
 #include "Emu/FS/vfsFile.h"
+#include "Emu/SysCalls/lv2/sleep_queue_type.h"
 #include "Emu/SysCalls/lv2/sys_spu.h"
 #include "Emu/SysCalls/lv2/sys_lwmutex.h"
 #include "Emu/SysCalls/lv2/sys_spinlock.h"
@@ -30,7 +32,8 @@ int _sys_heap_create_heap(const u32 heap_addr, const u32 align, const u32 size)
 {
 	sysPrxForUser->Warning("_sys_heap_create_heap(heap_addr=0x%x, align=0x%x, size=0x%x)", heap_addr, align, size);
 
-	u32 heap_id = sysPrxForUser->GetNewId(new HeapInfo(heap_addr, align, size));
+	std::shared_ptr<HeapInfo> heap(new HeapInfo(heap_addr, align, size));
+	u32 heap_id = sysPrxForUser->GetNewId(heap);
 	sysPrxForUser->Warning("*** sys_heap created: id = %d", heap_id);
 	return heap_id;
 }
@@ -39,7 +42,7 @@ u32 _sys_heap_malloc(const u32 heap_id, const u32 size)
 {
 	sysPrxForUser->Warning("_sys_heap_malloc(heap_id=%d, size=0x%x)", heap_id, size);
 
-	HeapInfo* heap;
+	std::shared_ptr<HeapInfo> heap;
 	if(!sysPrxForUser->CheckId(heap_id, heap)) return CELL_ESRCH;
 
 	return (u32)Memory.Alloc(size, 1);
@@ -49,7 +52,7 @@ u32 _sys_heap_memalign(u32 heap_id, u32 align, u32 size)
 {
 	sysPrxForUser->Warning("_sys_heap_memalign(heap_id=%d, align=0x%x, size=0x%x)", heap_id, align, size);
 
-	HeapInfo* heap;
+	std::shared_ptr<HeapInfo> heap;
 	if(!sysPrxForUser->CheckId(heap_id, heap)) return CELL_ESRCH;
 
 	return (u32)Memory.Alloc(size, align);
@@ -283,7 +286,7 @@ s32 _sys_spu_printf_finalize()
 	return CELL_OK;
 }
 
-s64 _sys_spu_printf_attach_group(u32 group)
+s32 _sys_spu_printf_attach_group(PPUThread& CPU, u32 group)
 {
 	sysPrxForUser->Warning("_sys_spu_printf_attach_group(group=%d)", group);
 
@@ -292,10 +295,10 @@ s64 _sys_spu_printf_attach_group(u32 group)
 		return CELL_ESTAT;
 	}
 
-	return spu_printf_agcb(group);
+	return spu_printf_agcb.call(CPU, group);
 }
 
-s64 _sys_spu_printf_detach_group(u32 group)
+s32 _sys_spu_printf_detach_group(PPUThread& CPU, u32 group)
 {
 	sysPrxForUser->Warning("_sys_spu_printf_detach_group(group=%d)", group);
 
@@ -304,10 +307,10 @@ s64 _sys_spu_printf_detach_group(u32 group)
 		return CELL_ESTAT;
 	}
 
-	return spu_printf_dgcb(group);
+	return spu_printf_dgcb.call(CPU, group);
 }
 
-s64 _sys_spu_printf_attach_thread(u32 thread)
+s32 _sys_spu_printf_attach_thread(PPUThread& CPU, u32 thread)
 {
 	sysPrxForUser->Warning("_sys_spu_printf_attach_thread(thread=%d)", thread);
 
@@ -316,10 +319,10 @@ s64 _sys_spu_printf_attach_thread(u32 thread)
 		return CELL_ESTAT;
 	}
 
-	return spu_printf_atcb(thread);
+	return spu_printf_atcb.call(CPU, thread);
 }
 
-s64 _sys_spu_printf_detach_thread(u32 thread)
+s32 _sys_spu_printf_detach_thread(PPUThread& CPU, u32 thread)
 {
 	sysPrxForUser->Warning("_sys_spu_printf_detach_thread(thread=%d)", thread);
 
@@ -328,7 +331,7 @@ s64 _sys_spu_printf_detach_thread(u32 thread)
 		return CELL_ESTAT;
 	}
 
-	return spu_printf_dtcb(thread);
+	return spu_printf_dtcb.call(CPU, thread);
 }
 
 s32 _sys_snprintf(vm::ptr<char> dst, u32 count, vm::ptr<const char> fmt) // va_args...

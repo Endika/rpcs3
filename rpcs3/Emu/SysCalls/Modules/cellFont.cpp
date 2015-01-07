@@ -36,11 +36,11 @@ int cellFontGetRevisionFlags(vm::ptr<be_t<u64>> revisionFlags)
 	return CELL_FONT_OK;
 }
 
-int cellFontInit(vm::ptr<CellFontConfig> config)
+int cellFontInit(PPUThread& CPU, vm::ptr<CellFontConfig> config)
 {
 	cellFont->Log("cellFontInit(config=0x%x)", config.addr());
 
-	vm::var<be_t<u64>> revisionFlags;
+	vm::stackvar<be_t<u64>> revisionFlags(CPU);
 	revisionFlags.value() = 0;
 	cellFontGetRevisionFlags(revisionFlags);
 	return cellFontInitializeWithRevision(revisionFlags.value(), config);
@@ -101,7 +101,7 @@ int cellFontOpenFontFile(vm::ptr<CellFontLibrary> library, vm::ptr<const char> f
 	return ret;
 }
 
-int cellFontOpenFontset(vm::ptr<CellFontLibrary> library, vm::ptr<CellFontType> fontType, vm::ptr<CellFont> font)
+int cellFontOpenFontset(PPUThread& CPU, vm::ptr<CellFontLibrary> library, vm::ptr<CellFontType> fontType, vm::ptr<CellFont> font)
 {
 	cellFont->Log("cellFontOpenFontset(library_addr=0x%x, fontType_addr=0x%x, font_addr=0x%x)",
 		library.addr(), fontType.addr(), font.addr());
@@ -177,7 +177,7 @@ int cellFontOpenFontset(vm::ptr<CellFontLibrary> library, vm::ptr<CellFontType> 
 		return CELL_FONT_ERROR_NO_SUPPORT_FONTSET;
 	}
 
-	vm::var<char> f((u32)file.length() + 1, 1);
+	vm::stackvar<char> f(CPU, (u32)file.length() + 1, 1);
 	memcpy(f.get_ptr(), file.c_str(), file.size() + 1);
 	int ret = cellFontOpenFontFile(library, f, 0, 0, font); //TODO: Find the correct values of subNum, uniqueId
 	font->origin = CELL_FONT_OPEN_FONTSET;
@@ -385,8 +385,7 @@ int cellFontGetEffectSlant(vm::ptr<CellFont> font, vm::ptr<be_t<float>> slantPar
 
 int cellFontGetFontIdCode(vm::ptr<CellFont> font, u32 code, vm::ptr<u32> fontId, vm::ptr<u32> fontCode)
 {
-	cellFont->Todo("cellFontGetFontIdCode(font_addr=0x%x, code=0x%x, fontId_addr=0x%x, fontCode_addr=0x%x",
-		font.addr(), code, fontId.addr(), fontCode.addr());
+	cellFont->Todo("cellFontGetFontIdCode(font_addr=0x%x, code=0x%x, fontId_addr=0x%x, fontCode_addr=0x%x)", font.addr(), code, fontId.addr(), fontCode.addr());
 
 	// TODO: ?
 	return CELL_FONT_OK;
@@ -406,8 +405,7 @@ int cellFontCloseFont(vm::ptr<CellFont> font)
 
 int cellFontGetCharGlyphMetrics(vm::ptr<CellFont> font, u32 code, vm::ptr<CellFontGlyphMetrics> metrics)
 {
-	cellFont->Log("cellFontGetCharGlyphMetrics(font_addr=0x%x, code=0x%x, metrics_addr=0x%x",
-		font.addr(), code, metrics.addr());
+	cellFont->Log("cellFontGetCharGlyphMetrics(font_addr=0x%x, code=0x%x, metrics_addr=0x%x)", font.addr(), code, metrics.addr());
 
 	int x0, y0, x1, y1;
 	int advanceWidth, leftSideBearing;

@@ -7,6 +7,7 @@
 #include <stack>
 #include "Utilities/SSemaphore.h"
 #include "Utilities/Thread.h"
+#include "Utilities/Timer.h"
 
 enum Method
 {
@@ -101,19 +102,22 @@ public:
 protected:
 	std::stack<u32> m_call_stack;
 	CellGcmControl* m_ctrl;
+	Timer m_timer_sync;
+	double m_fps_limit = 59.94;
 
 public:
 	GcmTileInfo m_tiles[m_tiles_count];
 	GcmZcullInfo m_zculls[m_zculls_count];
 	RSXTexture m_textures[m_textures_count];
+	RSXVertexTexture m_vertex_textures[m_textures_count];
 	RSXVertexData m_vertex_data[m_vertex_count];
 	RSXIndexArrayData m_indexed_array;
 	std::vector<RSXTransformConstant> m_fragment_constants;
 	std::vector<RSXTransformConstant> m_transform_constants;
 	
-	u32 m_shader_ctrl, m_cur_shader_prog_num;
-	RSXShaderProgram m_shader_progs[m_fragment_count];
-	RSXShaderProgram* m_cur_shader_prog;
+	u32 m_shader_ctrl, m_cur_fragment_prog_num;
+	RSXFragmentProgram m_fragment_progs[m_fragment_count];
+	RSXFragmentProgram* m_cur_fragment_prog;
 	RSXVertexProgram m_vertex_progs[m_vertex_count];
 	RSXVertexProgram* m_cur_vertex_prog;
 
@@ -303,6 +307,7 @@ public:
 	u32 m_back_stencil_zfail;
 	bool m_set_back_stencil_zpass;
 	u32 m_back_stencil_zpass;
+	bool m_set_stencil_op_fail;
 
 	// Line width
 	bool m_set_line_width;
@@ -492,7 +497,7 @@ protected:
 		m_front_face = 0x0901; // GL_CCW
 		m_cull_face = 0x0405; // GL_BACK
 		m_alpha_func = 0x0207; // GL_ALWAYS
-		m_alpha_ref = 0; 
+		m_alpha_ref = 0.0; 
 		m_logic_op = 0x1503; // GL_COPY
 		m_shade_mode = 0x1D01; // GL_SMOOTH
 		m_depth_mask = 1;
@@ -515,12 +520,15 @@ protected:
 		m_line_stipple_factor = 1;
 		m_vertex_data_base_offset = 0;
 		m_vertex_data_base_index = 0;
-		for (size_t i = 0; i < 32; i++) {
+
+		// Construct Stipple Pattern
+		for (size_t i = 0; i < 32; i++) 
+		{
 			m_polygon_stipple_pattern[i] = 0xFFFFFFFF;
 		}
 
 		// Construct Textures
-		for(int i=0; i<16; i++)
+		for (int i = 0; i < 16; i++)
 		{
 			m_textures[i] = RSXTexture(i);
 		}
@@ -571,6 +579,7 @@ protected:
 		m_set_back_stencil_fail = false;
 		m_set_back_stencil_zfail = false;
 		m_set_back_stencil_zpass = false;
+		m_set_stencil_op_fail = false;
 		m_set_point_sprite_control = false;
 		m_set_point_size = false;
 		m_set_line_width = false;
@@ -607,7 +616,7 @@ protected:
 		m_clear_surface_mask = 0;
 		m_begin_end = 0;
 
-		for(uint i=0; i<m_textures_count; ++i)
+		for (uint i = 0; i < m_textures_count; ++i)
 		{
 			m_textures[i].Init();
 		}
@@ -618,19 +627,53 @@ protected:
 
 	u32 OutOfArgsCount(const uint x, const u32 cmd, const u32 count, const u32 args_addr);
 	void DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const u32 count);
-	void nativeRescale(float width, float height);
+	void NativeRescale(float width, float height);
 	
 	virtual void OnInit() = 0;
 	virtual void OnInitThread() = 0;
 	virtual void OnExitThread() = 0;
 	virtual void OnReset() = 0;
 	virtual void ExecCMD() = 0;
-	virtual void ExecCMD(u32 cmd) = 0;
+	virtual void Enable(u32 cmd, u32 enable) = 0;
+	virtual void ClearColor(u32 a, u32 r, u32 g, u32 b) = 0;
+	virtual void ClearStencil(u32 stencil) = 0;
+	virtual void ClearDepth(u32 depth) = 0;
+	virtual void ClearSurface(u32 mask) = 0;
+	virtual void ColorMask(bool a, bool r, bool g, bool b) = 0;
+	virtual void AlphaFunc(u32 func, float ref) = 0;
+	virtual void DepthFunc(u32 func) = 0;
+	virtual void DepthMask(u32 flag) = 0;
+	virtual void PolygonMode(u32 face, u32 mode) = 0;
+	virtual void PointSize(float size) = 0;
+	virtual void LogicOp(u32 opcode) = 0;
+	virtual void LineWidth(float width) = 0;
+	virtual void LineStipple(u16 factor, u16 pattern) = 0;
+	virtual void PolygonStipple(u32 pattern) = 0;
+	virtual void PrimitiveRestartIndex(u32 index) = 0;
+	virtual void CullFace(u32 mode) = 0;
+	virtual void FrontFace(u32 mode) = 0;
+	virtual void Fogi(u32 mode) = 0;
+	virtual void Fogf(float start, float end) = 0;
+	virtual void PolygonOffset(float factor, float bias) = 0;
+	virtual void DepthRangef(float min, float max) = 0;
+	virtual void BlendEquationSeparate(u16 rgb, u16 a) = 0;
+	virtual void BlendFuncSeparate(u16 srcRGB, u16 dstRGB, u16 srcAlpha, u16 dstAlpha) = 0;
+	virtual void BlendColor(u8 r, u8 g, u8 b, u8 a) = 0;
+	virtual void LightModeli(u32 enable) = 0;
+	virtual void ShadeModel(u32 mode) = 0;
+	virtual void DepthBoundsEXT(float min, float max) = 0;
+	virtual void Scissor(u16 x, u16 y, u16 width, u16 height) = 0;
+	virtual void StencilOp(u32 fail, u32 zfail, u32 zpass) = 0;
+	virtual void StencilMask(u32 mask) = 0;
+	virtual void StencilFunc(u32 func, u32 ref, u32 mask) = 0;
+	virtual void StencilOpSeparate(u32 mode, u32 fail, u32 zfail, u32 zpass) = 0;
+	virtual void StencilMaskSeparate(u32 mode, u32 mask) = 0;
+	virtual void StencilFuncSeparate(u32 mode, u32 func, u32 ref, u32 mask) = 0;
 	virtual void Flip() = 0;
 
 	void LoadVertexData(u32 first, u32 count)
 	{
-		for(u32 i=0; i<m_vertex_count; ++i)
+		for (u32 i = 0; i < m_vertex_count; ++i)
 		{
 			if(!m_vertex_data[i].IsEnabled()) continue;
 

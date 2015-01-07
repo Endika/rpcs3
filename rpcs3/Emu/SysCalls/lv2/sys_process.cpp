@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Emu/FS/VFS.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "Emu/SysCalls/SysCalls.h"
@@ -103,14 +104,11 @@ void sys_game_process_exitspawn(vm::ptr<const char> path, u32 argv_addr, u32 env
 		Emu.Stop();
 	});
 
-	int device = -1;
+	std::string real_path;
 
-	if (_path.substr(1, 8) == "dev_hdd0")
-		device = 0;
-	else if (_path.substr(1, 8) == "dev_hdd1")
-		device = 1;
+	Emu.GetVFS().GetDevice(_path.c_str(), real_path);
 
-	Emu.BootGame(_path.c_str(), true, device);
+	Emu.BootGame(real_path, true);
 
 	return;
 }
@@ -182,21 +180,18 @@ void sys_game_process_exitspawn2(vm::ptr<const char> path, u32 argv_addr, u32 en
 		Emu.Stop();
 	});
 	
-	int device = -1;
+	std::string real_path;
 
-	if (_path.substr(1, 8) == "dev_hdd0")
-		device = 0;
-	else if (_path.substr(1, 8) == "dev_hdd1")
-		device = 1;
+	Emu.GetVFS().GetDevice(_path.c_str(), real_path);
 
-	Emu.BootGame(_path.c_str(), true, device);
+	Emu.BootGame(real_path, true);
 
 	return;
 }
 
 s32 sys_process_get_number_of_object(u32 object, vm::ptr<u32> nump)
 {
-	sys_process.Warning("sys_process_get_number_of_object(object=%d, nump_addr=0x%x)",
+	sys_process.Todo("sys_process_get_number_of_object(object=%d, nump_addr=0x%x)",
 		object, nump.addr());
 
 	switch(object)
@@ -239,7 +234,7 @@ s32 sys_process_get_id(u32 object, vm::ptr<u32> buffer, u32 size, vm::ptr<u32> s
 
 #define ADD_OBJECTS(type) { \
 	u32 i=0; \
-	const auto& objects = Emu.GetIdManager().GetTypeIDs(type); \
+	const auto objects = Emu.GetIdManager().GetTypeIDs(type); \
 	for(auto id=objects.begin(); i<size && id!=objects.end(); id++, i++) \
 		buffer[i] = *id; \
 	*set_size = i; \

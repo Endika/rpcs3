@@ -21,8 +21,6 @@ CPUThread::CPUThread(CPUThreadType type)
 	, m_stack_addr(0)
 	, m_offset(0)
 	, m_prio(0)
-	, m_sync_wait(false)
-	, m_wait_thread_id(-1)
 	, m_dec(nullptr)
 	, m_is_step(false)
 	, m_is_branch(false)
@@ -44,7 +42,7 @@ bool CPUThread::IsStopped() const { return m_status == Stopped; }
 
 void CPUThread::Close()
 {
-	ThreadBase::Stop(m_sync_wait);
+	ThreadBase::Stop(false);
 	DoStop();
 
 	delete m_dec;
@@ -54,9 +52,6 @@ void CPUThread::Close()
 void CPUThread::Reset()
 {
 	CloseStack();
-
-	m_sync_wait = 0;
-	m_wait_thread_id = -1;
 
 	SetPc(0);
 	cycle = 0;
@@ -89,24 +84,6 @@ void CPUThread::SetName(const std::string& name)
 	NamedThreadBase::SetThreadName(name);
 }
 
-void CPUThread::Wait(bool wait)
-{
-	std::lock_guard<std::mutex> lock(m_cs_sync);
-	m_sync_wait = wait;
-}
-
-void CPUThread::Wait(const CPUThread& thr)
-{
-	std::lock_guard<std::mutex> lock(m_cs_sync);
-	m_wait_thread_id = thr.GetId();
-	m_sync_wait = true;
-}
-
-bool CPUThread::Sync()
-{
-	return m_sync_wait;
-}
-
 int CPUThread::ThreadStatus()
 {
 	if(Emu.IsStopped() || IsStopped() || IsPaused())
@@ -124,7 +101,7 @@ int CPUThread::ThreadStatus()
 		return CPUThread_Step;
 	}
 
-	if (Emu.IsPaused() || Sync())
+	if (Emu.IsPaused())
 	{
 		return CPUThread_Sleeping;
 	}
@@ -277,27 +254,6 @@ void CPUThread::ExecOnce()
 	SendDbgCommand(DID_PAUSED_THREAD, this);
 }
 
-#ifdef _WIN32
-void _se_translator(unsigned int u, EXCEPTION_POINTERS* pExp)
-{
-	const u64 addr = (u64)pExp->ExceptionRecord->ExceptionInformation[1] - (u64)Memory.GetBaseAddr();
-	CPUThread* t = GetCurrentCPUThread();
-	if (u == EXCEPTION_ACCESS_VIOLATION && addr < 0x100000000 && t)
-	{
-		// TODO: allow recovering from a page fault
-		throw fmt::Format("Access violation: addr = 0x%x (is_alive=%d, last_syscall=0x%llx (%s))",
-			(u32)addr, t->IsAlive() ? 1 : 0, t->m_last_syscall, SysCalls::GetHLEFuncName((u32)t->m_last_syscall).c_str());
-	}
-	else
-	{
-		// some fatal error (should crash)
-		return;
-	}
-}
-#else
-// TODO: linux version
-#endif
-
 void CPUThread::Task()
 {
 	if (Ini.HLELogging.GetValue()) LOG_NOTICE(GENERAL, "%s enter", CPUThread::GetFName().c_str());
@@ -315,12 +271,6 @@ void CPUThread::Task()
 
 	std::vector<u32> trace;
 
-#ifdef _WIN32
-	auto old_se_translator = _set_se_translator(_se_translator);
-#else
-	// TODO: linux version
-#endif
-
 	try
 	{
 		while (true)
@@ -334,7 +284,7 @@ void CPUThread::Task()
 
 			if (status == CPUThread_Sleeping)
 			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				std::this_thread::sleep_for(std::chrono::milliseconds(1)); // hack
 				continue;
 			}
 
@@ -368,12 +318,6 @@ void CPUThread::Task()
 		LOG_ERROR(GENERAL, "Exception: %s", e);
 		Emu.Pause();
 	}
-
-#ifdef _WIN32
-	_set_se_translator(old_se_translator);
-#else
-	// TODO: linux version
-#endif
 
 	if (trace.size())
 	{

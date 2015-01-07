@@ -1,6 +1,8 @@
 #pragma once
 #include "Memory.h"
 
+class CPUThread;
+
 namespace vm
 {
 	enum memory_location : uint
@@ -64,26 +66,12 @@ namespace vm
 
 		static u32 read32(u32 addr)
 		{
-			if (addr < RAW_SPU_BASE_ADDR || (addr % RAW_SPU_OFFSET) < RAW_SPU_PROB_OFFSET)
-			{
-				return re32(*(u32*)((u8*)g_base_addr + addr));
-			}
-			else
-			{
-				return Memory.ReadMMIO32((u32)addr);
-			}
+			return re32(*(u32*)((u8*)g_base_addr + addr));;
 		}
 
 		static void write32(u32 addr, be_t<u32> value)
 		{
-			if (addr < RAW_SPU_BASE_ADDR || (addr % RAW_SPU_OFFSET) < RAW_SPU_PROB_OFFSET)
-			{
-				*(be_t<u32>*)((u8*)g_base_addr + addr) = value;
-			}
-			else
-			{
-				Memory.WriteMMIO32((u32)addr, value);
-			}
+			*(be_t<u32>*)((u8*)g_base_addr + addr) = value;
 		}
 
 		static u64 read64(u32 addr)
@@ -185,6 +173,9 @@ namespace vm
 	}
 
 	void close();
+
+	u32 stack_push(CPUThread& CPU, u32 size, u32 align, u32& old_pos);
+	void stack_pop(CPUThread& CPU, u32 addr, u32 old_pos);
 }
 
 #include "vm_ref.h"
