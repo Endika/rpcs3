@@ -78,7 +78,7 @@ enum
 	CELL_SYSUTIL_SYSCHAT_VOICE_STREAMING_PAUSED  = 0x0164,
 };
 
-typedef void(*CellSysutilCallback)(u64 status, u64 param, vm::ptr<void> userdata);
+typedef void(CellSysutilCallback)(u64 status, u64 param, vm::ptr<void> userdata);
 
 void sysutilSendSystemCommand(u64 status, u64 param);
 
@@ -152,107 +152,22 @@ enum
 	CELL_SYSCACHE_ERROR_NOTMOUNTED    = 0x8002bc04, // We don't really need to simulate the mounting, so this is probably useless
 };
 
-// cellSysutil: cellHddGame
-enum
-{
-	// Return Codes
-	CELL_HDDGAME_RET_CANCEL            = 1,
-	CELL_HDDGAME_ERROR_CBRESULT        = 0x8002ba01,
-	CELL_HDDGAME_ERROR_ACCESS_ERROR    = 0x8002ba02,
-	CELL_HDDGAME_ERROR_INTERNAL        = 0x8002ba03,
-	CELL_HDDGAME_ERROR_PARAM           = 0x8002ba04,
-	CELL_HDDGAME_ERROR_NOSPACE         = 0x8002ba05,
-	CELL_HDDGAME_ERROR_BROKEN          = 0x8002ba06,
-	CELL_HDDGAME_ERROR_FAILURE         = 0x8002ba07,
-
-	// Callback Result
-	CELL_HDDGAME_CBRESULT_OK_CANCEL    = 1,
-	CELL_HDDGAME_CBRESULT_OK           = 0,
-	CELL_HDDGAME_CBRESULT_ERR_NOSPACE  = -1,
-	CELL_HDDGAME_CBRESULT_ERR_BROKEN   = -3,
-	CELL_HDDGAME_CBRESULT_ERR_NODATA   = -4,
-	CELL_HDDGAME_CBRESULT_ERR_INVALID  = -5,
-
-	// Character Strings
-	CELL_HDDGAME_INVALIDMSG_MAX        = 256,
-	CELL_HDDGAME_PATH_MAX              = 1055,
-	CELL_HDDGAME_SYSP_TITLE_SIZE       = 128,
-	CELL_HDDGAME_SYSP_TITLEID_SIZE     = 10,
-	CELL_HDDGAME_SYSP_VERSION_SIZE     = 6,
-	CELL_HDDGAME_SYSP_SYSTEMVER_SIZE   = 8,
-
-	// HDD Directory exists
-	CELL_HDDGAME_ISNEWDATA_EXIST       = 0,
-	CELL_HDDGAME_ISNEWDATA_NODIR       = 1,
-
-	// Languages
-	CELL_HDDGAME_SYSP_LANGUAGE_NUM     = 20,
-
-	// Stat Get
-	CELL_HDDGAME_SIZEKB_NOTCALC        = -1,
-};
-
-struct CellHddGameSystemFileParam
-{
-	char title[CELL_HDDGAME_SYSP_TITLE_SIZE];
-	char titleLang[CELL_HDDGAME_SYSP_LANGUAGE_NUM][CELL_HDDGAME_SYSP_TITLE_SIZE];
-	char titleId[CELL_HDDGAME_SYSP_TITLEID_SIZE];
-	u8 reserved0[2];
-	char dataVersion[CELL_HDDGAME_SYSP_VERSION_SIZE];
-	u8 reserved1[2];
-	be_t<u32> attribute;
-	be_t<u32> parentalLevel;
-	be_t<u32> resolution;
-	be_t<u32> soundFormat;
-	u8 reserved2[256];
-};
-
-struct CellHddGameStatGet
-{
-	be_t<s32> hddFreeSizeKB;
-	be_t<u32> isNewData;
-	u8 contentInfoPath[CELL_HDDGAME_PATH_MAX];
-	u8 hddGamePath[CELL_HDDGAME_PATH_MAX];
-	u8 reserved0[2];
-	be_t<u64> st_atime__;
-	be_t<u64> st_mtime__;
-	be_t<u64> st_ctime__;
-	CellHddGameSystemFileParam getParam;
-	be_t<s32> sizeKB;
-	be_t<s32> sysSizeKB;
-	u8 reserved1[68];
-};
-
-struct CellHddGameStatSet
-{
-	vm::bptr<CellHddGameSystemFileParam> setParam;
-	be_t<u32> reserved_addr;  // void*
-};
-
-struct CellHddGameCBResult
-{
-	be_t<u32> result;
-	be_t<s32> errNeedSizeKB;
-	be_t<u32> invalidMsg_addr;  // char*
-	be_t<u32> reserved_addr;  // void*
-};
-
 typedef s32 CellWebBrowserId;
-typedef void* CellWebBrowserClientSession;
-typedef void(*CellWebBrowserCallback)(s32 cb_type, vm::ptr<CellWebBrowserClientSession>, vm::ptr<void> usrdata);
-typedef void(*CellWebComponentCallback)(CellWebBrowserId, s32 cb_type, vm::ptr<CellWebBrowserClientSession>, vm::ptr<void> usrdata);
-typedef void(*CellWebBrowserSystemCallback)(s32 cb_type, vm::ptr<void> usrdata);
+typedef vm::ptr<void> CellWebBrowserClientSession;
+typedef void(CellWebBrowserCallback)(s32 cb_type, CellWebBrowserClientSession, vm::ptr<void> usrdata);
+typedef void(CellWebComponentCallback)(CellWebBrowserId, s32 cb_type, CellWebBrowserClientSession, vm::ptr<void> usrdata);
+typedef void(CellWebBrowserSystemCallback)(s32 cb_type, vm::ptr<void> usrdata);
 
-typedef void(*CellWebBrowserMIMETypeCallback)(vm::ptr<const char> mimetype, vm::ptr<const char> url, vm::ptr<void> usrdata);
-typedef void(*CellWebBrowserErrorCallback)(s32 err_type, vm::ptr<void> usrdata);
-typedef void(*CellWebBrowserStatusCallback)(s32 err_type, vm::ptr<void> usrdata);
-typedef void(*CellWebBrowserNotify)(vm::ptr<const char> message, vm::ptr<void> usrdata);
-typedef void(*CellWebBrowserUsrdata)(vm::ptr<void> usrdata);
+typedef void(CellWebBrowserMIMETypeCallback)(vm::ptr<const char> mimetype, vm::ptr<const char> url, vm::ptr<void> usrdata);
+typedef void(CellWebBrowserErrorCallback)(s32 err_type, vm::ptr<void> usrdata);
+typedef void(CellWebBrowserStatusCallback)(s32 err_type, vm::ptr<void> usrdata);
+typedef void(CellWebBrowserNotify)(vm::ptr<const char> message, vm::ptr<void> usrdata);
+typedef void(CellWebBrowserUsrdata)(vm::ptr<void> usrdata);
 
 struct CellWebBrowserMimeSet
 {
-	vm::bptr<const char> const type;
-	vm::bptr<const char> const directory;
+	const vm::bptr<const char> type;
+	const vm::bptr<const char> directory;
 };
 
 struct CellWebBrowserPos
@@ -303,4 +218,3 @@ struct CellWebBrowserConfig2
 	be_t<float> resolution_factor;
 	be_t<s32> magic_number_;
 };
-

@@ -1,7 +1,9 @@
 RPCS3
 =====
 
-[![Build Status](https://travis-ci.org/DHrpcs3/rpcs3.svg?branch=master)](https://travis-ci.org/DHrpcs3/rpcs3)
+[![Build Status](https://travis-ci.org/RPCS3/rpcs3.svg?branch=master)](https://travis-ci.org/RPCS3/rpcs3)
+[![Coverity Status](https://scan.coverity.com/projects/3960/badge.svg)](https://scan.coverity.com/projects/3960)
+[![Coverage Status](https://coveralls.io/repos/DHrpcs3/rpcs3/badge.svg)](https://coveralls.io/r/DHrpcs3/rpcs3)
 
 An open-source PlayStation 3 emulator/debugger written in C++.
 
@@ -20,6 +22,7 @@ __Windows__
 
 __Linux__
 * Debian & Ubuntu: `sudo apt-get install libopenal-dev libwxgtk3.0-dev build-essential libglew-dev`
+* Arch: `sudo pacman -S glew openal wxgtk cmake llvm`
 
 __Mac OSX__
 * Install with Homebrew: `brew install glew wxwidgets`

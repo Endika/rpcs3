@@ -1,10 +1,11 @@
 #include "stdafx.h"
 #include "rpcs3/Ini.h"
-#include "Emu/SysCalls/SysCalls.h"
 #include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "Emu/DbgCommand.h"
+#include "Emu/SysCalls/SysCalls.h"
+#include "Emu/ARMv7/PSVFuncList.h"
 
 #include "CPUDecoder.h"
 #include "CPUThread.h"
@@ -16,10 +17,10 @@ CPUThread* GetCurrentCPUThread()
 
 CPUThread::CPUThread(CPUThreadType type)
 	: ThreadBase("CPUThread")
+	, m_events(0)
 	, m_type(type)
 	, m_stack_size(0)
 	, m_stack_addr(0)
-	, m_offset(0)
 	, m_prio(0)
 	, m_dec(nullptr)
 	, m_is_step(false)
@@ -29,11 +30,68 @@ CPUThread::CPUThread(CPUThreadType type)
 	, m_trace_enabled(false)
 	, m_trace_call_stack(true)
 {
+	offset = 0;
 }
 
 CPUThread::~CPUThread()
 {
 	safe_delete(m_dec);
+}
+
+void CPUThread::DumpInformation()
+{
+	auto get_syscall_name = [this](u64 syscall) -> std::string
+	{
+		switch (GetType())
+		{
+		case CPU_THREAD_ARMv7:
+		{
+			if ((u32)syscall == syscall)
+			{
+				if (syscall)
+				{
+					if (auto func = get_psv_func_by_nid((u32)syscall))
+					{
+						return func->name;
+					}
+				}
+				else
+				{
+					return{};
+				}
+			}
+
+			return "unknown function";
+		}
+
+		case CPU_THREAD_PPU:
+		{
+			if (syscall)
+			{
+				return SysCalls::GetFuncName(syscall);
+			}
+			else
+			{
+				return{};
+			}
+		}
+
+		case CPU_THREAD_SPU:
+		case CPU_THREAD_RAW_SPU:
+		default:
+		{
+			if (!syscall)
+			{
+				return{};
+			}
+
+			return "unknown function";
+		}
+		}
+	};
+
+	LOG_ERROR(GENERAL, "Information: is_alive=%d, m_last_syscall=0x%llx (%s)", IsAlive(), m_last_syscall, get_syscall_name(m_last_syscall));
+	LOG_WARNING(GENERAL, RegsToString());
 }
 
 bool CPUThread::IsRunning() const { return m_status == Running; }
@@ -54,24 +112,11 @@ void CPUThread::Reset()
 	CloseStack();
 
 	SetPc(0);
-	cycle = 0;
 	m_is_branch = false;
 
 	m_status = Stopped;
-	m_error = 0;
 	
 	DoReset();
-}
-
-void CPUThread::CloseStack()
-{
-	if(m_stack_addr)
-	{
-		Memory.StackMem.Free(m_stack_addr);
-		m_stack_addr = 0;
-	}
-
-	m_stack_size = 0;
 }
 
 void CPUThread::SetId(const u32 id)
@@ -114,7 +159,7 @@ void CPUThread::SetEntry(const u32 pc)
 	entry = pc;
 }
 
-void CPUThread::NextPc(u8 instr_size)
+void CPUThread::NextPc(u32 instr_size)
 {
 	if(m_is_branch)
 	{
@@ -140,29 +185,6 @@ void CPUThread::SetBranch(const u32 pc, bool record_branch)
 void CPUThread::SetPc(const u32 pc)
 {
 	PC = pc;
-}
-
-void CPUThread::SetError(const u32 error)
-{
-	if(error == 0)
-	{
-		m_error = 0;
-	}
-	else
-	{
-		m_error |= error;
-	}
-}
-
-std::vector<std::string> CPUThread::ErrorToString(const u32 error)
-{
-	std::vector<std::string> earr;
-
-	if(error == 0) return earr;
-
-	earr.push_back("Unknown error");
-
-	return earr;
 }
 
 void CPUThread::Run()
@@ -221,6 +243,7 @@ void CPUThread::Stop()
 	SendDbgCommand(DID_STOP_THREAD, this);
 
 	m_status = Stopped;
+	m_events |= CPU_EVENT_STOP;
 
 	if(static_cast<NamedThreadBase*>(this) != GetCurrentNamedThread())
 	{
@@ -262,7 +285,7 @@ void CPUThread::Task()
 
 	for (uint i = 0; i<bp.size(); ++i)
 	{
-		if (bp[i] == m_offset + PC)
+		if (bp[i] == offset + PC)
 		{
 			Emu.Pause();
 			break;
@@ -271,52 +294,40 @@ void CPUThread::Task()
 
 	std::vector<u32> trace;
 
-	try
+	while (true)
 	{
-		while (true)
+		int status = ThreadStatus();
+
+		if (status == CPUThread_Stopped || status == CPUThread_Break)
 		{
-			int status = ThreadStatus();
+			break;
+		}
 
-			if (status == CPUThread_Stopped || status == CPUThread_Break)
+		if (status == CPUThread_Sleeping)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1)); // hack
+			continue;
+		}
+
+		Step();
+		//if (m_trace_enabled)
+		//trace.push_back(PC);
+		NextPc(m_dec->DecodeMemory(PC + offset));
+
+		if (status == CPUThread_Step)
+		{
+			m_is_step = false;
+			break;
+		}
+
+		for (uint i = 0; i < bp.size(); ++i)
+		{
+			if (bp[i] == PC)
 			{
+				Emu.Pause();
 				break;
-			}
-
-			if (status == CPUThread_Sleeping)
-			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(1)); // hack
-				continue;
-			}
-
-			Step();
-			//if (m_trace_enabled) trace.push_back(PC);
-			NextPc(m_dec->DecodeMemory(PC + m_offset));
-
-			if (status == CPUThread_Step)
-			{
-				m_is_step = false;
-				break;
-			}
-
-			for (uint i = 0; i < bp.size(); ++i)
-			{
-				if (bp[i] == PC)
-				{
-					Emu.Pause();
-					break;
-				}
 			}
 		}
-	}
-	catch (const std::string& e)
-	{
-		LOG_ERROR(GENERAL, "Exception: %s", e.c_str());
-		Emu.Pause();
-	}
-	catch (const char* e)
-	{
-		LOG_ERROR(GENERAL, "Exception: %s", e);
-		Emu.Pause();
 	}
 
 	if (trace.size())
@@ -327,7 +338,7 @@ void CPUThread::Task()
 
 		for (auto& v : trace) //LOG_NOTICE(GENERAL, "PC = 0x%x", v);
 		{
-			if (v - prev != 4)
+			if (v - prev != 4 && v - prev != 2)
 			{
 				LOG_NOTICE(GENERAL, "Trace: 0x%08x .. 0x%08x", start, prev);
 				start = v;
@@ -337,7 +348,6 @@ void CPUThread::Task()
 
 		LOG_NOTICE(GENERAL, "Trace end: 0x%08x .. 0x%08x", start, prev);
 	}
-
 
 	if (Ini.HLELogging.GetValue()) LOG_NOTICE(GENERAL, "%s leave", CPUThread::GetFName().c_str());
 }

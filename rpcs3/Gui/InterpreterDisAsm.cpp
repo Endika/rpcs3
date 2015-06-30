@@ -108,12 +108,12 @@ void InterpreterDisAsmFrame::UpdateUnitList()
 {
 	m_choice_units->Freeze();
 	m_choice_units->Clear();
-	//auto& thrs = Emu.GetCPU().GetThreads();
+	auto thrs = Emu.GetCPU().GetThreads();
 
-	//for (auto& t : thrs)
-	//{
-	//	m_choice_units->Append(t->GetFName(), t.get());
-	//}
+	for (auto& t : thrs)
+	{
+		m_choice_units->Append(t->GetFName(), t.get());
+	}
 
 	m_choice_units->Thaw();
 }
@@ -248,10 +248,10 @@ void InterpreterDisAsmFrame::ShowAddr(const u64 addr)
 	}
 	else
 	{
-		disasm->offset = vm::get_ptr<u8>(CPU->GetOffset());
+		disasm->offset = vm::get_ptr<u8>(CPU->offset);
 		for(uint i=0, count = 4; i<m_item_count; ++i, PC += count)
 		{
-			if(!Memory.IsGoodAddr(CPU->GetOffset() + PC, 4))
+			if(!vm::check_addr(CPU->offset + PC, 4))
 			{
 				m_list->SetItem(i, 0, wxString(IsBreakPoint(PC) ? ">>> " : "    ") + wxString::Format("[%08llx] illegal address", PC));
 				count = 4;
@@ -259,7 +259,7 @@ void InterpreterDisAsmFrame::ShowAddr(const u64 addr)
 			}
 
 			disasm->dump_pc = PC;
-			count = decoder->DecodeMemory(CPU->GetOffset() + PC);
+			count = decoder->DecodeMemory(CPU->offset + PC);
 
 			if(IsBreakPoint(PC))
 			{
@@ -514,10 +514,12 @@ void InterpreterDisAsmFrame::InstrKey(wxListEvent& event)
 	switch(event.GetKeyCode())
 	{
 	case 'E':
+		// TODO:: Syphurith: It is said the InstructionEditorDialog would be immediately destroyed.
 		InstructionEditorDialog(this, pc, CPU, decoder, disasm);
 		DoUpdate();
 		return;
 	case 'R':
+		// TODO:: Syphurith: Eh Similiar for this one.
 		RegisterEditorDialog(this, pc, CPU, decoder, disasm);
 		DoUpdate();
 		return;

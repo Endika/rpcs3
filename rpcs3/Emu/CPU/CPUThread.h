@@ -1,8 +1,7 @@
 #pragma once
-
 #include "Utilities/Thread.h"
 
-enum CPUThreadType :unsigned char
+enum CPUThreadType : unsigned char
 {
 	CPU_THREAD_PPU,
 	CPU_THREAD_SPU,
@@ -21,16 +20,22 @@ enum CPUThreadStatus
 	CPUThread_Step,
 };
 
+// CPU Thread Events
+enum : u64
+{
+	CPU_EVENT_STOP = (1ull << 0),
+};
+
 class CPUDecoder;
 
 class CPUThread : public ThreadBase
 {
 protected:
+	std::atomic<u64> m_events; // flags
+
 	u32 m_status;
-	u32 m_error;
 	u32 m_id;
 	u64 m_prio;
-	u32 m_offset;
 	CPUThreadType m_type;
 	bool m_joinable;
 	bool m_joining;
@@ -45,11 +50,15 @@ protected:
 
 	bool m_trace_call_stack;
 
-public:
-	virtual void InitRegs()=0;
+	virtual void DumpInformation() override;
 
-	virtual void InitStack()=0;
-	virtual void CloseStack();
+public:
+	void AddEvent(const u64 event) { m_events |= event; }
+
+	virtual void InitRegs() = 0;
+
+	virtual void InitStack() = 0;
+	virtual void CloseStack() = 0;
 
 	u32 GetStackAddr() const { return m_stack_addr; }
 	u32 GetStackSize() const { return m_stack_size; }
@@ -60,22 +69,15 @@ public:
 	void SetId(const u32 id);
 	void SetName(const std::string& name);
 	void SetPrio(const u64 prio) { m_prio = prio; }
-	void SetOffset(const u32 offset) { m_offset = offset; }
 	void SetExitStatus(const u64 status) { m_exit_status = status; }
 
-	u32 GetOffset() const { return m_offset; }
-	u64 GetExitStatus() const { return m_exit_status; }
 	u64 GetPrio() const { return m_prio; }
+	u64 GetExitStatus() const { return m_exit_status; }
 
 	std::string GetName() const { return NamedThreadBase::GetThreadName(); }
 	std::string GetFName() const
 	{
-		return 
-			fmt::Format("%s[%d] Thread%s", 
-				GetTypeString().c_str(),
-				m_id,
-				(GetName().empty() ? std::string("") : fmt::Format(" (%s)", GetName().c_str())).c_str()
-			);
+		return fmt::format("%s[0x%x] Thread (%s)", GetTypeString(), m_id, GetName());
 	}
 
 	static std::string CPUThreadTypeToString(CPUThreadType type)
@@ -111,8 +113,7 @@ public:
 
 	virtual std::string GetThreadName() const
 	{
-		std::string temp = (GetFName() + fmt::Format("[0x%08x]", PC));
-		return temp;
+		return fmt::format("%s[0x%08x]", GetFName(), PC);
 	}
 
 	CPUDecoder * GetDecoder() { return m_dec; };
@@ -121,13 +122,10 @@ public:
 	u32 entry;
 	u32 PC;
 	u32 nPC;
-	u64 cycle;
+	u32 index;
+	u32 offset;
 	bool m_is_branch;
 	bool m_trace_enabled;
-
-	bool m_is_interrupt;
-	bool m_has_interrupt;
-	u64 m_interrupt_arg;
 	u64 m_last_syscall;
 
 protected:
@@ -138,17 +136,11 @@ public:
 
 	int ThreadStatus();
 
-	void NextPc(u8 instr_size);
+	void NextPc(u32 instr_size);
 	void SetBranch(const u32 pc, bool record_branch = false);
 	void SetPc(const u32 pc);
 	void SetEntry(const u32 entry);
 
-	void SetError(const u32 error);
-
-	static std::vector<std::string> ErrorToString(const u32 error);
-	std::vector<std::string> ErrorToString() { return ErrorToString(m_error); }
-
-	bool IsOk()	const { return m_error == 0; }
 	bool IsRunning() const;
 	bool IsPaused() const;
 	bool IsStopped() const;
@@ -158,7 +150,6 @@ public:
 	void SetJoinable(bool joinable) { m_joinable = joinable; }
 	void SetJoining(bool joining) { m_joining = joining; }
 
-	u32 GetError() const { return m_error; }
 	u32 GetId() const { return m_id; }
 	CPUThreadType GetType()	const { return m_type; }
 
@@ -243,7 +234,7 @@ CPUThread* GetCurrentCPUThread();
 class cpu_thread
 {
 protected:
-	CPUThread* thread;
+	std::shared_ptr<CPUThread> thread;
 
 public:
 	u32 get_entry() const

@@ -25,7 +25,7 @@ enum GCMEnumTypes
 
 RSXDebugger::RSXDebugger(wxWindow* parent) 
 	: wxFrame(parent, wxID_ANY, "RSX Debugger", wxDefaultPosition, wxSize(700, 450))
-	, m_item_count(23)
+	, m_item_count(37)
 	, m_addr(0x0)
 	, m_cur_texture(0)
 	, exit(false)
@@ -77,7 +77,7 @@ RSXDebugger::RSXDebugger(wxWindow* parent)
 	s_controls->Add(s_controls_breaks);
 
 	//Tabs
-	wxNotebook* nb_rsx = new wxNotebook(this, wxID_ANY, wxDefaultPosition, wxSize(482,475));
+	wxNotebook* nb_rsx = new wxNotebook(this, wxID_ANY, wxDefaultPosition, wxSize(732, 732));
 	wxPanel* p_commands  = new wxPanel(nb_rsx, wxID_ANY);
 	wxPanel* p_flags     = new wxPanel(nb_rsx, wxID_ANY);
 	wxPanel* p_programs  = new wxPanel(nb_rsx, wxID_ANY);
@@ -93,12 +93,12 @@ RSXDebugger::RSXDebugger(wxWindow* parent)
 	nb_rsx->AddPage(p_settings,  wxT("Settings"));
 
 	//Tabs: Lists
-	m_list_commands  = new wxListView(p_commands,  wxID_ANY, wxPoint(1,3), wxSize(470,444));
-	m_list_flags     = new wxListView(p_flags,     wxID_ANY, wxPoint(1,3), wxSize(470,444));
-	m_list_programs  = new wxListView(p_programs,  wxID_ANY, wxPoint(1,3), wxSize(470,444));
-	m_list_lightning = new wxListView(p_lightning, wxID_ANY, wxPoint(1,3), wxSize(470,444));
-	m_list_texture   = new wxListView(p_texture,   wxID_ANY, wxPoint(1,3), wxSize(470,444));
-	m_list_settings  = new wxListView(p_settings,  wxID_ANY, wxPoint(1,3), wxSize(470,444));
+	m_list_commands  = new wxListView(p_commands,  wxID_ANY, wxPoint(1,3), wxSize(720, 720));
+	m_list_flags     = new wxListView(p_flags,     wxID_ANY, wxPoint(1,3), wxSize(720, 720));
+	m_list_programs  = new wxListView(p_programs,  wxID_ANY, wxPoint(1,3), wxSize(720, 720));
+	m_list_lightning = new wxListView(p_lightning, wxID_ANY, wxPoint(1,3), wxSize(720, 720));
+	m_list_texture   = new wxListView(p_texture,   wxID_ANY, wxPoint(1,3), wxSize(720, 720));
+	m_list_settings  = new wxListView(p_settings,  wxID_ANY, wxPoint(1,3), wxSize(720, 720));
 	
 	//Tabs: List Style
 	m_list_commands ->SetFont(wxFont(8, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
@@ -111,7 +111,7 @@ RSXDebugger::RSXDebugger(wxWindow* parent)
 	//Tabs: List Columns
 	m_list_commands->InsertColumn(0, "Address", 0, 80);
 	m_list_commands->InsertColumn(1, "Value", 0, 80);
-	m_list_commands->InsertColumn(2, "Command", 0, 250);
+	m_list_commands->InsertColumn(2, "Command", 0, 500);
 	m_list_commands->InsertColumn(3, "Count", 0, 40);
 	m_list_flags->InsertColumn(0, "Name", 0, 170);
 	m_list_flags->InsertColumn(1, "Value", 0, 270);
@@ -259,14 +259,14 @@ void RSXDebugger::OnChangeToolsAddr(wxCommandEvent& event)
 
 void RSXDebugger::OnScrollMemory(wxMouseEvent& event)
 {
-	if(Memory.IsGoodAddr(m_addr))
+	if(vm::check_addr(m_addr))
 	{
 		int items = event.ControlDown() ? m_item_count : 1;
 
 		for(int i=0; i<items; ++i)
 		{
 			u32 offset;
-			if(Memory.IsGoodAddr(m_addr))
+			if(vm::check_addr(m_addr))
 			{
 				u32 cmd = vm::read32(m_addr);
 				u32 count = (cmd & (CELL_GCM_METHOD_FLAG_JUMP | CELL_GCM_METHOD_FLAG_CALL))
@@ -304,7 +304,7 @@ void RSXDebugger::OnClickBuffer(wxMouseEvent& event)
 #define SHOW_BUFFER(id) \
 	{ \
 		u32 addr = render.m_local_mem_addr + buffers[id].offset; \
-		if (Memory.IsGoodAddr(addr) && buffers[id].width && buffers[id].height) \
+		if (vm::check_addr(addr) && buffers[id].width && buffers[id].height) \
 			MemoryViewerPanel::ShowImage(this, addr, 3, buffers[id].width, buffers[id].height, true); \
 		return; \
 	} \
@@ -316,7 +316,7 @@ void RSXDebugger::OnClickBuffer(wxMouseEvent& event)
 	if (event.GetId() == p_buffer_tex->GetId())
 	{
 		u8 location = render.m_textures[m_cur_texture].GetLocation();
-		if(location <= 1 && Memory.IsGoodAddr(GetAddress(render.m_textures[m_cur_texture].GetOffset(), location))
+		if(location <= 1 && vm::check_addr(GetAddress(render.m_textures[m_cur_texture].GetOffset(), location))
 			&& render.m_textures[m_cur_texture].GetWidth() && render.m_textures[m_cur_texture].GetHeight())
 			MemoryViewerPanel::ShowImage(this,
 				GetAddress(render.m_textures[m_cur_texture].GetOffset(), location), 1,
@@ -331,9 +331,9 @@ void RSXDebugger::GoToGet(wxCommandEvent& event)
 {
 	if (!RSXReady()) return;
 	auto ctrl = vm::get_ptr<CellGcmControl>(Emu.GetGSManager().GetRender().m_ctrlAddress);
-	u64 realAddr;
+	u32 realAddr;
 	if (Memory.RSXIOMem.getRealAddr(ctrl->get.read_relaxed(), realAddr)) {
-		m_addr = realAddr; // WARNING: Potential Truncation? Cast from u64 to u32
+		m_addr = realAddr;
 		t_addr->SetValue(wxString::Format("%08x", m_addr));
 		UpdateInformation();
 		event.Skip();
@@ -345,9 +345,9 @@ void RSXDebugger::GoToPut(wxCommandEvent& event)
 {
 	if (!RSXReady()) return;
 	auto ctrl = vm::get_ptr<CellGcmControl>(Emu.GetGSManager().GetRender().m_ctrlAddress);
-	u64 realAddr;
+	u32 realAddr;
 	if (Memory.RSXIOMem.getRealAddr(ctrl->put.read_relaxed(), realAddr)) {
-		m_addr = realAddr; // WARNING: Potential Truncation? Cast from u64 to u32
+		m_addr = realAddr;
 		t_addr->SetValue(wxString::Format("%08x", m_addr));
 		UpdateInformation();
 		event.Skip();
@@ -380,7 +380,7 @@ void RSXDebugger::GetMemory()
 	{
 		m_list_commands->SetItem(i, 0, wxString::Format("%08x", addr));
 	
-		if (isReady && Memory.IsGoodAddr(addr))
+		if (isReady && vm::check_addr(addr))
 		{
 			u32 cmd = vm::read32(addr);
 			u32 count = (cmd >> 18) & 0x7ff;
@@ -409,13 +409,13 @@ void RSXDebugger::GetBuffers()
 	// TODO: Currently it only supports color buffers
 	for (u32 bufferId=0; bufferId < render.m_gcm_buffers_count; bufferId++)
 	{
-		if(!Memory.IsGoodAddr(render.m_gcm_buffers_addr))
+		if(!vm::check_addr(render.m_gcm_buffers_addr))
 			continue;
 
 		auto buffers = vm::get_ptr<CellGcmDisplayInfo>(render.m_gcm_buffers_addr);
 		u32 RSXbuffer_addr = render.m_local_mem_addr + buffers[bufferId].offset;
 
-		if(!Memory.IsGoodAddr(RSXbuffer_addr))
+		if(!vm::check_addr(RSXbuffer_addr))
 			continue;
 
 		auto RSXbuffer = vm::get_ptr<unsigned char>(RSXbuffer_addr);
@@ -467,7 +467,7 @@ void RSXDebugger::GetBuffers()
 
 	u32 TexBuffer_addr = GetAddress(offset, location);
 
-	if(!Memory.IsGoodAddr(TexBuffer_addr))
+	if(!vm::check_addr(TexBuffer_addr))
 		return;
 
 	unsigned char* TexBuffer = vm::get_ptr<unsigned char>(TexBuffer_addr);
@@ -836,6 +836,272 @@ wxString RSXDebugger::DisAsmCommand(u32 cmd, u32 count, u32 currentAddr, u32 ioA
 		u32 index = 0;
 		switch(cmd & 0x3ffff)
 		{
+		case NV406E_SEMAPHORE_OFFSET:
+			DISASM("PFIFO: Semaphore offset 0x%x", (u32)args[0]);
+			break;
+
+		case NV406E_SEMAPHORE_ACQUIRE:
+			DISASM("PFIFO: Semaphore acquire at 0x%x", (u32)args[0]);
+			break;
+
+		case NV406E_SEMAPHORE_RELEASE:
+			DISASM("PFIFO: Semaphore release value 0x%x", (u32)args[0]);
+			break;
+
+		case NV4097_SET_SURFACE_FORMAT:
+		{
+			const u32 a0 = (u32)args[0];
+			const u32 surface_format = a0 & 0x1f;
+			const u32 surface_depth_format = (a0 >> 5) & 0x7;
+
+			const char *depth_type_name, *color_type_name;
+			switch (surface_depth_format)
+			{
+			case CELL_GCM_SURFACE_Z16:
+				depth_type_name = "CELL_GCM_SURFACE_Z16";
+				break;
+			case CELL_GCM_SURFACE_Z24S8:
+				depth_type_name = "CELL_GCM_SURFACE_Z24S8";
+				break;
+			default: depth_type_name = "";
+				break;
+			}
+			switch (surface_format)
+			{
+			case CELL_GCM_SURFACE_X1R5G5B5_Z1R5G5B5:
+				color_type_name = "CELL_GCM_SURFACE_X1R5G5B5_Z1R5G5B5";
+				break;
+			case CELL_GCM_SURFACE_X1R5G5B5_O1R5G5B5:
+				color_type_name = "CELL_GCM_SURFACE_X1R5G5B5_O1R5G5B5";
+				break;
+			case CELL_GCM_SURFACE_R5G6B5:
+				color_type_name = "CELL_GCM_SURFACE_R5G6B5";
+				break;
+			case CELL_GCM_SURFACE_X8R8G8B8_Z8R8G8B8:
+				color_type_name = "CELL_GCM_SURFACE_X8R8G8B8_Z8R8G8B8";
+				break;
+			case CELL_GCM_SURFACE_X8R8G8B8_O8R8G8B8:
+				color_type_name = "CELL_GCM_SURFACE_X8R8G8B8_O8R8G8B8";
+				break;
+			case CELL_GCM_SURFACE_A8R8G8B8:
+				color_type_name = "CELL_GCM_SURFACE_A8R8G8B8";
+				break;
+			case CELL_GCM_SURFACE_B8:
+				color_type_name = "CELL_GCM_SURFACE_B8";
+				break;
+			case CELL_GCM_SURFACE_G8B8:
+				color_type_name = "CELL_GCM_SURFACE_G8B8";
+				break;
+			case CELL_GCM_SURFACE_F_W16Z16Y16X16:
+				color_type_name = "CELL_GCM_SURFACE_F_W16Z16Y16X16";
+				break;
+			case CELL_GCM_SURFACE_F_W32Z32Y32X32:
+				color_type_name = "CELL_GCM_SURFACE_F_W32Z32Y32X32";
+				break;
+			case CELL_GCM_SURFACE_F_X32:
+				color_type_name = "CELL_GCM_SURFACE_F_X32";
+				break;
+			case CELL_GCM_SURFACE_X8B8G8R8_Z8B8G8R8:
+				color_type_name = "CELL_GCM_SURFACE_X8B8G8R8_Z8B8G8R8";
+				break;
+			case CELL_GCM_SURFACE_X8B8G8R8_O8B8G8R8:
+				color_type_name = "CELL_GCM_SURFACE_X8B8G8R8_O8B8G8R8";
+				break;
+			case CELL_GCM_SURFACE_A8B8G8R8:
+				color_type_name = "CELL_GCM_SURFACE_A8B8G8R8";
+				break;
+			default: color_type_name = "";
+				break;
+			}
+			DISASM("Set surface format : C %s Z %s", color_type_name, depth_type_name);
+		}
+			break;
+
+		case NV4097_SET_SURFACE_COLOR_TARGET:
+			DISASM("Set surface color target");
+			break;
+
+		case NV4097_SET_SHADER_WINDOW:
+			DISASM("Set shader windows");
+			break;
+
+		case NV4097_SET_DEPTH_TEST_ENABLE:
+			DISASM("Set depth test enable");
+			break;
+
+		case NV4097_SET_DEPTH_FUNC:
+			DISASM("Set depth func");
+			break;
+
+		case NV4097_SET_ZSTENCIL_CLEAR_VALUE:
+			DISASM("Set ZSTENCIL clear value");
+			break;
+
+		case NV4097_CLEAR_SURFACE:
+			DISASM("Clear surface");
+			break;
+
+		case NV4097_SET_TRANSFORM_CONSTANT_LOAD:
+			DISASM("Set transform constant load");
+			break;
+
+		case NV4097_SET_VERTEX_DATA_ARRAY_FORMAT:
+			DISASM("Set vertex data array format");
+			break;
+
+		case NV4097_SET_VERTEX_DATA_ARRAY_OFFSET:
+			DISASM("Set vertex data array offset");
+			break;
+
+		case NV4097_SET_SHADER_PROGRAM:
+			DISASM("Set shader program");
+			break;
+
+		case NV4097_SET_VERTEX_ATTRIB_OUTPUT_MASK:
+			DISASM("Set vertex attrib output mask");
+			break;
+
+		case NV4097_SET_TEX_COORD_CONTROL:
+			DISASM("Set tex coord control");
+			break;
+
+		case NV4097_SET_TRANSFORM_PROGRAM_LOAD:
+			DISASM("Set transform program load");
+			break;
+
+		case NV4097_SET_TRANSFORM_PROGRAM:
+			DISASM("Set transform program");
+			break;
+
+		case NV4097_SET_VERTEX_ATTRIB_INPUT_MASK:
+			DISASM("Set vertex attrib input mask");
+			break;
+
+		case NV4097_SET_TRANSFORM_TIMEOUT:
+			DISASM("Set transform timeout");
+			break;
+
+		case NV4097_INVALIDATE_VERTEX_CACHE_FILE:
+			DISASM("Invalidate vertex cache file");
+			break;
+
+		case NV4097_SET_SHADER_CONTROL:
+			DISASM("Set shader control");
+			break;
+
+		case NV4097_SET_SEMAPHORE_OFFSET:
+			DISASM("PGRAPH: Set semaphore offset 0x%x", (u32)args[0]);
+			break;
+
+		case NV4097_BACK_END_WRITE_SEMAPHORE_RELEASE:
+			DISASM("PGRAPH: Back end write semaphore release %x", (u32)args[0]);
+			break;
+
+		case NV4097_SET_COLOR_MASK_MRT:
+			DISASM("Set color mask MRT");
+			break;
+
+		case NV4097_SET_TEXTURE_IMAGE_RECT:
+			DISASM("Set texture image rect");
+			break;
+
+		case NV4097_SET_TEXTURE_CONTROL3:
+			DISASM("Set texture control 3");
+			break;
+
+		case NV4097_SET_TEXTURE_CONTROL1:
+			DISASM("Set texture control 1");
+			break;
+
+		case NV4097_SET_TEXTURE_CONTROL0:
+			DISASM("Set texture control 0");
+			break;
+
+		case NV4097_SET_TEXTURE_ADDRESS:
+			DISASM("Set texture address");
+			break;
+
+		case NV4097_SET_TEXTURE_FILTER:
+			DISASM("Set texture filter");
+			break;
+
+		case NV4097_SET_BLEND_FUNC_SFACTOR:
+			DISASM("Set blend func sfactor");
+			break;
+
+		case NV4097_SET_FRONT_POLYGON_MODE:
+			DISASM("Set front polygon mode");
+			break;
+
+		case NV4097_SET_VIEWPORT_HORIZONTAL:
+		{
+			u32 m_viewport_x = (u32)args[0] & 0xffff;
+			u32 m_viewport_w = (u32)args[0] >> 16;
+
+			if (count == 2)
+			{
+				u32 m_viewport_y = (u32)args[1] & 0xffff;
+				u32 m_viewport_h = (u32)args[1] >> 16;
+				DISASM("Set viewport horizontal %d %d", m_viewport_w, m_viewport_h);
+			}
+			else
+				DISASM("Set viewport horizontal %d", m_viewport_w);
+			break;
+		}
+
+		case NV4097_SET_CLIP_MIN:
+			DISASM("Set clip min");
+			break;
+
+		case NV4097_SET_VIEWPORT_OFFSET:
+			DISASM("Set viewport offset");
+			break;
+
+		case NV4097_SET_SCISSOR_HORIZONTAL:
+			DISASM("Set scissor horizontal");
+			break;
+
+		case NV4097_INVALIDATE_L2:
+			DISASM("Invalidate L2");
+			break;
+
+		case NV4097_INVALIDATE_VERTEX_FILE:
+			DISASM("Invalidate vertex file");
+			break;
+
+		case NV4097_SET_BEGIN_END:
+			DISASM("Set BEGIN END");
+			break;
+
+		case NV4097_DRAW_ARRAYS:
+			DISASM("Draw arrays");
+			break;
+
+		case NV4097_SET_WINDOW_OFFSET:
+			DISASM("Set window offset");
+			break;
+
+		case NV4097_SET_SURFACE_CLIP_HORIZONTAL:
+		{
+			const u32 a0 = (u32)args[0];
+
+			u32 clip_x = a0;
+			u32 clip_w = a0 >> 16;
+
+			if (count == 2)
+			{
+				const u32 a1 = (u32)args[1];
+				u32 clip_y = a1;
+				u32 clip_h = a1 >> 16;
+				DISASM("Set surface clip horizontal : %d %d", clip_w, clip_h);
+			}
+			else
+				DISASM("Set surface clip horizontal : %d", clip_w);
+			break;
+		}
+
+			break;
+
 		case 0x3fead:
 			DISASM("Flip and change current buffer: %d", (u32)args[0]);
 		break;

@@ -1030,6 +1030,10 @@ private:
 		
 		Write(fmt::Format("bc [%x:%x:%x:%x:%x], cr%d[%x], 0x%x, %d, %d", bo0, bo1, bo2, bo3, bo4, bi/4, bi%4, bd, aa, lk));
 	}
+	void HACK(u32 index)
+	{
+		Write(fmt::Format("hack %d", index));
+	}
 	void SC(u32 lev)
 	{
 		switch (lev)
@@ -1674,6 +1678,10 @@ private:
 	void STVLX(u32 vs, u32 ra, u32 rb)
 	{
 		DisAsm_V1_R2("stvlx", vs, ra, rb);
+	}
+	void STDBRX(u32 rs, u32 ra, u32 rb)
+	{
+		DisAsm_R3("stdbrx", rs, ra, rb);
 	}
 	void STSWX(u32 rs, u32 ra, u32 rb)
 	{

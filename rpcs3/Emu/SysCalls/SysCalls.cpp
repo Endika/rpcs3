@@ -5,11 +5,10 @@
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "ModuleManager.h"
-#include "Emu/Memory/atomic_type.h"
 
-#include "lv2/cellFs.h"
-#include "lv2/sleep_queue_type.h"
+#include "lv2/sleep_queue.h"
 #include "lv2/sys_lwmutex.h"
+#include "lv2/sys_lwcond.h"
 #include "lv2/sys_mutex.h"
 #include "lv2/sys_cond.h"
 #include "lv2/sys_event.h"
@@ -29,30 +28,20 @@
 #include "lv2/sys_trace.h"
 #include "lv2/sys_tty.h"
 #include "lv2/sys_vm.h"
+#include "lv2/sys_fs.h"
 
 #include "Emu/SysCalls/Modules/cellGcmSys.h"
 
 #include "SysCalls.h"
 
-namespace detail
-{
-	bool CheckIdID(u32 id, ID*& _id, const std::string &name)
-	{
-		return Emu.GetIdManager().CheckID(id) && (_id = &Emu.GetIdManager().GetID(id))->GetName() == name;
-	}
-}
-
-void default_syscall(PPUThread& CPU);
-static func_caller *null_func = bind_func(default_syscall);
-
-static const int kSyscallTableLength = 1024;
+void null_func(PPUThread& CPU);
 
 // UNS = Unused
 // ROOT = Root
 // DBG = Debug
 // PM = Product Mode
 // AuthID = Authentication ID
-static func_caller* sc_table[kSyscallTableLength] =
+const ppu_func_caller sc_table[1024] =
 {
 	null_func,
 	bind_func(sys_process_getpid),                          //1   (0x001)
@@ -81,12 +70,12 @@ static func_caller* sc_table[kSyscallTableLength] =
 	null_func,//bind_func(),                                //27  (0x01B)  DBG
 	null_func,//bind_func(_sys_process_get_number_of_object)//28  (0x01C)  ROOT
 	bind_func(sys_process_get_id),                          //29  (0x01D)  ROOT
-	bind_func(sys_process_get_paramsfo),                    //30  (0x01E)
+	bind_func(_sys_process_get_paramsfo),                    //30  (0x01E)
 	null_func,//bind_func(sys_process_get_ppu_guid),        //31  (0x01F)
 	
 	null_func, null_func, null_func, null_func, null_func, null_func, null_func, null_func, null_func, //32-40  UNS
 
-	bind_func(sys_internal_ppu_thread_exit),                //41  (0x029)
+	bind_func(_sys_ppu_thread_exit),                        //41  (0x029)
 	null_func,                                              //42  (0x02A)  UNS
 	bind_func(sys_ppu_thread_yield),                        //43  (0x02B)
 	bind_func(sys_ppu_thread_join),                         //44  (0x02C)
@@ -97,8 +86,8 @@ static func_caller* sc_table[kSyscallTableLength] =
 	bind_func(sys_ppu_thread_get_stack_information),        //49  (0x031)
 	null_func,//bind_func(sys_ppu_thread_stop),             //50  (0x032)  ROOT
 	null_func,//bind_func(sys_ppu_thread_restart),          //51  (0x033)  ROOT
-	null_func,//bind_func(sys_ppu_thread_create),           //52  (0x034)  DBG
-	null_func,//bind_func(sys_ppu_thread_start),            //53  (0x035)
+	bind_func(_sys_ppu_thread_create),                       //52  (0x034)  DBG
+	bind_func(sys_ppu_thread_start),                        //53  (0x035)
 	null_func,//bind_func(sys_ppu_...),                     //54  (0x036)  ROOT
 	null_func,//bind_func(sys_ppu_...),                     //55  (0x037)  ROOT
 	bind_func(sys_ppu_thread_rename),                       //56  (0x038)
@@ -118,7 +107,7 @@ static func_caller* sc_table[kSyscallTableLength] =
 	bind_func(sys_timer_create),                            //70  (0x046)
 	bind_func(sys_timer_destroy),                           //71  (0x047)
 	bind_func(sys_timer_get_information),                   //72  (0x048)
-	bind_func(sys_timer_start),                             //73  (0x049)
+	bind_func(_sys_timer_start),                            //73  (0x049)
 	bind_func(sys_timer_stop),                              //74  (0x04A)
 	bind_func(sys_timer_connect_event_queue),               //75  (0x04B)
 	bind_func(sys_timer_disconnect_event_queue),            //76  (0x04C)
@@ -134,17 +123,17 @@ static func_caller* sc_table[kSyscallTableLength] =
 	bind_func(sys_event_flag_trywait),                      //86  (0x056)
 	bind_func(sys_event_flag_set),                          //87  (0x057)
 	bind_func(sys_interrupt_thread_eoi),                    //88  (0x058)
-	bind_func(sys_interrupt_thread_disestablish),           //89  (0x059)
+	bind_func(_sys_interrupt_thread_disestablish),          //89  (0x059)
 	bind_func(sys_semaphore_create),                        //90  (0x05A)
 	bind_func(sys_semaphore_destroy),                       //91  (0x05B)
 	bind_func(sys_semaphore_wait),                          //92  (0x05C)
 	bind_func(sys_semaphore_trywait),                       //93  (0x05D)
 	bind_func(sys_semaphore_post),                          //94  (0x05E)
-	null_func,//bind_func(_sys_lwmutex_create),             //95  (0x05F) // internal, used by sys_lwmutex_create
-	null_func,//bind_func(_sys_lwmutex_destroy),            //96  (0x060) // internal, used by sys_lwmutex_destroy
-	null_func,//bind_func(_sys_lwmutex_lock),               //97  (0x061) // internal, used by sys_lwmutex_lock
-	null_func,//bind_func(_sys_lwmutex_???lock),            //98  (0x062) // internal, used by sys_lwmutex_unlock
-	null_func,//bind_func(_sys_lwmutex_???lock),            //99  (0x063) // internal, used by sys_lwmutex_trylock
+	bind_func(_sys_lwmutex_create),                         //95  (0x05F)
+	bind_func(_sys_lwmutex_destroy),                        //96  (0x060)
+	bind_func(_sys_lwmutex_lock),                           //97  (0x061)
+	bind_func(_sys_lwmutex_unlock),                         //98  (0x062)
+	bind_func(_sys_lwmutex_trylock),                        //99  (0x063)
 	bind_func(sys_mutex_create),                            //100 (0x064)
 	bind_func(sys_mutex_destroy),                           //101 (0x065)
 	bind_func(sys_mutex_lock),                              //102 (0x066)
@@ -156,12 +145,12 @@ static func_caller* sc_table[kSyscallTableLength] =
 	bind_func(sys_cond_signal),                             //108 (0x06C)
 	bind_func(sys_cond_signal_all),                         //109 (0x06D)
 	bind_func(sys_cond_signal_to),                          //110 (0x06E)
-	null_func,//bind_func(_sys_lwcond_create)               //111 (0x06F) // internal, used by sys_lwcond_create
-	null_func,//bind_func(_sys_lwcond_destroy)              //112 (0x070) // internal, used by sys_lwcond_destroy
-	null_func,//bind_func(_sys_lwcond_queue_wait)           //113 (0x071) // internal, used by sys_lwcond_wait
+	bind_func(_sys_lwcond_create),                          //111 (0x06F)
+	bind_func(_sys_lwcond_destroy),                         //112 (0x070)
+	bind_func(_sys_lwcond_queue_wait),                      //113 (0x071)
 	bind_func(sys_semaphore_get_value),                     //114 (0x072)
-	null_func,//bind_func(sys_semaphore_...)                //115 (0x073) // internal, used by sys_lwcond_signal, sys_lwcond_signal_to
-	null_func,//bind_func(sys_semaphore_...)                //116 (0x074) // internal, used by sys_lwcond_signal_all
+	bind_func(_sys_lwcond_signal),                          //115 (0x073)
+	bind_func(_sys_lwcond_signal_all),                      //116 (0x074)
 	null_func,//bind_func(sys_semaphore_...)                //117 (0x075) // internal, used by sys_lwmutex_unlock
 	bind_func(sys_event_flag_clear),                        //118 (0x076)
 	null_func,//bind_func(sys_event_...)                    //119 (0x077)  ROOT
@@ -433,7 +422,7 @@ static func_caller* sc_table[kSyscallTableLength] =
 	null_func,                                              //462 (0x1CE)  UNS
 	null_func,//bind_func(sys_prx_load_module_by_fd)        //463 (0x1CF)
 	null_func,//bind_func(sys_prx_load_module_on_memcontainer_by_fd) //464 (0x1D0)
-	null_func,//bind_func(sys_prx_load_module_list)         //465 (0x1D1)
+	bind_func(sys_prx_load_module_list),         //465 (0x1D1)
 	null_func,//bind_func(sys_prx_load_module_list_on_memcontainer) //466 (0x1D2)
 	null_func,//bind_func(sys_prx_get_ppu_guid)             //467 (0x1D3)
 	null_func,//bind_func(sys_...)                          //468 (0x1D4)  ROOT
@@ -448,14 +437,14 @@ static func_caller* sc_table[kSyscallTableLength] =
 	
 	null_func, null_func, null_func,                        //477-479  UNS
 
-	null_func,//bind_func(sys_prx_load_module),             //480 (0x1E0)
-	null_func,//bind_func(sys_prx_start_module),            //481 (0x1E1)
-	null_func,//bind_func(sys_prx_stop_module),             //482 (0x1E2)
-	null_func,//bind_func(sys_prx_unload_module),           //483 (0x1E3)
-	null_func,//bind_func(sys_prx_register_module),         //484 (0x1E4)
+	bind_func(sys_prx_load_module),             //480 (0x1E0)
+	bind_func(sys_prx_start_module),            //481 (0x1E1)
+	bind_func(sys_prx_stop_module),             //482 (0x1E2)
+	bind_func(sys_prx_unload_module),           //483 (0x1E3)
+	bind_func(sys_prx_register_module),         //484 (0x1E4)
 	bind_func(sys_prx_query_module),                        //485 (0x1E5)
 	bind_func(sys_prx_register_library),                    //486 (0x1E6)
-	null_func,//bind_func(sys_prx_unregister_library),      //487 (0x1E7)
+	bind_func(sys_prx_unregister_library),      //487 (0x1E7)
 	bind_func(sys_prx_link_library),                        //488 (0x1E8)
 	bind_func(sys_prx_unlink_library),                      //489 (0x1E9)
 	bind_func(sys_prx_query_library),                       //490 (0x1EA)
@@ -704,29 +693,29 @@ static func_caller* sc_table[kSyscallTableLength] =
 	null_func, null_func, null_func, null_func, null_func,  //794  UNS
 	null_func, null_func, null_func, null_func, null_func,  //799  UNS
 
-	null_func,//bind_func(sys_fs_test),                     //800 (0x320)
-	bind_func(cellFsOpen),                                  //801 (0x321)
-	bind_func(cellFsRead),                                  //802 (0x322)
-	bind_func(cellFsWrite),                                 //803 (0x323)
-	bind_func(cellFsClose),                                 //804 (0x324)
-	bind_func(cellFsOpendir),                               //805 (0x325)
-	bind_func(cellFsReaddir),                               //806 (0x326)
-	bind_func(cellFsClosedir),                              //807 (0x327)
-	bind_func(cellFsStat),                                  //808 (0x328)
-	bind_func(cellFsFstat),                                 //809 (0x329)
+	bind_func(sys_fs_test),                                 //800 (0x320)
+	bind_func(sys_fs_open),                                 //801 (0x321)
+	bind_func(sys_fs_read),                                 //802 (0x322)
+	bind_func(sys_fs_write),                                //803 (0x323)
+	bind_func(sys_fs_close),                                //804 (0x324)
+	bind_func(sys_fs_opendir),                              //805 (0x325)
+	bind_func(sys_fs_readdir),                              //806 (0x326)
+	bind_func(sys_fs_closedir),                             //807 (0x327)
+	bind_func(sys_fs_stat),                                 //808 (0x328)
+	bind_func(sys_fs_fstat),                                //809 (0x329)
 	null_func,//bind_func(sys_fs_link),                     //810 (0x32A)
-	bind_func(cellFsMkdir),                                 //811 (0x32B)
-	bind_func(cellFsRename),                                //812 (0x32C)
-	bind_func(cellFsRmdir),                                 //813 (0x32D)
-	bind_func(cellFsUnlink),                                //814 (0x32E)
-	null_func,//bind_func(cellFsUtime),                     //815 (0x32F)
+	bind_func(sys_fs_mkdir),                                //811 (0x32B)
+	bind_func(sys_fs_rename),                               //812 (0x32C)
+	bind_func(sys_fs_rmdir),                                //813 (0x32D)
+	bind_func(sys_fs_unlink),                               //814 (0x32E)
+	null_func,//bind_func(sys_fs_utime),                    //815 (0x32F)
 	null_func,//bind_func(sys_fs_access),                   //816 (0x330)
-	null_func,//bind_func(sys_fs_fcntl),                    //817 (0x331)
-	bind_func(cellFsLseek),                                 //818 (0x332)
+	bind_func(sys_fs_fcntl),                                //817 (0x331)
+	bind_func(sys_fs_lseek),                                //818 (0x332)
 	null_func,//bind_func(sys_fs_fdatasync),                //819 (0x333)
-	null_func,//bind_func(cellFsFsync),                     //820 (0x334)
-	bind_func(cellFsFGetBlockSize),                         //821 (0x335)
-	bind_func(cellFsGetBlockSize),                          //822 (0x336)
+	null_func,//bind_func(sys_fs_fsync),                    //820 (0x334)
+	bind_func(sys_fs_fget_block_size),                      //821 (0x335)
+	bind_func(sys_fs_get_block_size),                       //822 (0x336)
 	null_func,//bind_func(sys_fs_acl_read),                 //823 (0x337)
 	null_func,//bind_func(sys_fs_acl_write),                //824 (0x338)
 	null_func,//bind_func(sys_fs_lsn_get_cda_size),         //825 (0x339)
@@ -735,10 +724,10 @@ static func_caller* sc_table[kSyscallTableLength] =
 	null_func,//bind_func(sys_fs_lsn_unlock),               //828 (0x33C)
 	null_func,//bind_func(sys_fs_lsn_read),                 //829 (0x33D)
 	null_func,//bind_func(sys_fs_lsn_write),                //830 (0x33E)
-	bind_func(cellFsTruncate),                              //831 (0x33F)
-	bind_func(cellFsFtruncate),                             //832 (0x340)
+	bind_func(sys_fs_truncate),                             //831 (0x33F)
+	bind_func(sys_fs_ftruncate),                            //832 (0x340)
 	null_func,//bind_func(sys_fs_symbolic_link),            //833 (0x341)
-	null_func,//bind_func(cellFsChmod),                     //834 (0x342)
+	bind_func(sys_fs_chmod),                                //834 (0x342)
 	null_func,//bind_func(sys_fs_chown),                    //835 (0x343)
 	null_func,//bind_func(sys_fs_newfs),                    //836 (0x344)
 	null_func,//bind_func(sys_fs_mount),                    //837 (0x345)
@@ -897,81 +886,35 @@ static func_caller* sc_table[kSyscallTableLength] =
 	null_func, null_func, null_func, bind_func(cellGcmCallback), //1023  UNS
 };
 
-/** HACK: Used to delete func_caller objects that get allocated and stored in sc_table (above).
-* The destructor of this static object gets called when the program shuts down.
-*/
-struct SyscallTableCleaner_t
+void null_func(PPUThread& CPU)
 {
-	SyscallTableCleaner_t() {}
-	~SyscallTableCleaner_t()
-	{
-		for (int i = 0; i < kSyscallTableLength; ++i)
-		{
-			if (sc_table[i] != null_func)
-				delete sc_table[i];
-		}
-
-		delete null_func;
-	}
-} SyscallTableCleaner_t;
-
-void default_syscall(PPUThread& CPU)
-{
-	u32 code = (u32)CPU.GPR[11];
-	//TODO: remove this
-	switch(code)
-	{
-		//tty
-		case 988:
-			LOG_WARNING(HLE, "SysCall 988! r3: 0x%llx, r4: 0x%llx, pc: 0x%x",
-				CPU.GPR[3], CPU.GPR[4], CPU.PC);
-			CPU.GPR[3] = 0;
-		return;
-
-		case 999:
-			dump_enable = !dump_enable;
-			Emu.Pause();
-			LOG_WARNING(HLE, "Dump %s", (dump_enable ? "enabled" : "disabled"));
-		return;
-
-		case 1000:
-			Ini.HLELogging.SetValue(!Ini.HLELogging.GetValue());
-			LOG_WARNING(HLE, "Log %s", (Ini.HLELogging.GetValue() ? "enabled" : "disabled"));
-		return;
-	}
-
-	LOG_ERROR(HLE, "Unknown syscall: %d - %08x", code, code);
+	const auto code = CPU.GPR[11];
+	LOG_ERROR(HLE, "Unimplemented syscall %lld: %s -> CELL_OK", code, SysCalls::GetFuncName(~code));
 	CPU.GPR[3] = 0;
-	return;
 }
 
-void SysCalls::DoSyscall(PPUThread& CPU, u32 code)
+void SysCalls::DoSyscall(PPUThread& CPU, u64 code)
 {
-	//Auto Pause using simple singleton.
-	Debug::AutoPause::getInstance().TryPause(code);
-
-	if(code < 1024)
+	if (code >= 1024)
 	{
-		(*sc_table[code])(CPU);
-		return;
+		CPU.m_last_syscall = code;
+		throw "Invalid syscall number";
 	}
 	
-	if(Emu.GetModuleManager().CallFunc(CPU, code))
+	auto old_last_syscall = CPU.m_last_syscall;
+	CPU.m_last_syscall = ~code;
+
+	if (Ini.HLELogging.GetValue())
 	{
-		return;
+		LOG_NOTICE(PPU, "Syscall %lld called: %s", code, SysCalls::GetFuncName(~code));
 	}
 
+	sc_table[code](CPU);
 
-	LOG_ERROR(HLE, "TODO: %s", GetHLEFuncName(code).c_str());
-	CPU.GPR[3] = 0;
-}
+	if (Ini.HLELogging.GetValue())
+	{
+		LOG_NOTICE(PPU, "Syscall %lld finished: %s -> 0x%llx", code, SysCalls::GetFuncName(~code), CPU.GPR[3]);
+	}
 
-IdManager& SysCallBase::GetIdManager() const
-{
-	return Emu.GetIdManager();
-}
-
-bool SysCallBase::RemoveId(u32 id)
-{
-	return Emu.GetIdManager().RemoveID(id);
+	CPU.m_last_syscall = old_last_syscall;
 }

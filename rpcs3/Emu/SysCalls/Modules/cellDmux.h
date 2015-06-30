@@ -1,8 +1,5 @@
 #pragma once
 
-// align size or address to 128
-#define a128(x) ((x + 127) & (~127))
-
 // Error Codes
 enum
 {
@@ -172,7 +169,7 @@ struct CellDmuxPamfSpecificInfo
 struct CellDmuxType2
 {
 	be_t<CellDmuxStreamType> streamType;
-	be_t<u32> streamSpecificInfo_addr;
+	be_t<u32> streamSpecificInfo;
 };
 
 struct CellDmuxResource
@@ -220,7 +217,7 @@ struct CellDmuxResource2
 	be_t<u32> shit[4];
 };
 
-typedef u32(*CellDmuxCbMsg)(u32 demuxerHandle, vm::ptr<CellDmuxMsg> demuxerMsg, u32 cbArg);
+typedef u32(CellDmuxCbMsg)(u32 demuxerHandle, vm::ptr<CellDmuxMsg> demuxerMsg, u32 cbArg);
 
 struct CellDmuxCb
 {
@@ -228,7 +225,7 @@ struct CellDmuxCb
 	be_t<u32> cbArg;
 };
 
-typedef u32(*CellDmuxCbEsMsg)(u32 demuxerHandle, u32 esHandle, vm::ptr<CellDmuxEsMsg> esMsg, u32 cbArg);
+typedef u32(CellDmuxCbEsMsg)(u32 demuxerHandle, u32 esHandle, vm::ptr<CellDmuxEsMsg> esMsg, u32 cbArg);
 
 struct CellDmuxEsCb
 {
@@ -407,6 +404,7 @@ public:
 	volatile bool is_finished;
 	volatile bool is_closed;
 	std::atomic<bool> is_running;
+	std::atomic<bool> is_working;
 
 	PPUThread* dmuxCb;
 
@@ -414,6 +412,7 @@ public:
 		: is_finished(false)
 		, is_closed(false)
 		, is_running(false)
+		, is_working(false)
 		, memAddr(addr)
 		, memSize(size)
 		, cbFunc(func)

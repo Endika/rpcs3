@@ -35,7 +35,7 @@ namespace vm
 
 		void alloc()
 		{
-			m_addr = (u32)Memory.Alloc(size(), m_align);
+			m_addr = Memory.Alloc(size(), m_align);
 			m_ptr = vm::get_ptr<T>(m_addr);
 		}
 
@@ -108,14 +108,24 @@ namespace vm
 		}
 		*/
 
-		template<typename AT> operator const ps3::ptr<T, 1, AT>() const
+		template<typename AT> operator _ptr_base<T, AT>() const
 		{
-			return ps3::ptr<T, 1, AT>::make(m_addr);
+			return _ptr_base<T, AT>::make(m_addr);
 		}
 
-		template<typename AT> operator const ps3::ptr<const T, 1, AT>() const
+		template<typename AT> operator _ptr_base<const T, AT>() const
 		{
-			return ps3::ptr<const T, 1, AT>::make(m_addr);
+			return _ptr_base<const T, AT>::make(m_addr);
+		}
+
+		template<typename AT> operator _ptr_base<void, AT>() const
+		{
+			return _ptr_base<void, AT>::make(m_addr);
+		}
+
+		template<typename AT> operator _ptr_base<const void, AT>() const
+		{
+			return _ptr_base<const void, AT>::make(m_addr);
 		}
 		
 		operator T&()
@@ -162,7 +172,7 @@ namespace vm
 
 		void alloc()
 		{
-			m_addr = (u32)Memory.Alloc(size(), m_align);
+			m_addr = Memory.Alloc(size(), m_align);
 			m_ptr = vm::get_ptr<T>(m_addr);
 		}
 
@@ -415,7 +425,7 @@ namespace vm
 			return m_addr;
 		}
 		
-		__forceinline uint count() const
+		force_inline uint count() const
 		{
 			return _count;
 		}
@@ -517,11 +527,12 @@ namespace vm
 				ptr = vm::get_ptr<T>(addr);
 			}
 
+		private:
 			stack_allocation() = delete;
-			stack_allocation(const stack_allocation& r) = delete;
-			stack_allocation(stack_allocation&& r) = delete;
-			stack_allocation& operator = (const stack_allocation& r) = delete;
-			stack_allocation& operator = (stack_allocation&& r) = delete;
+			stack_allocation(const stack_allocation&) = delete;
+			stack_allocation(stack_allocation&&) = delete;
+			stack_allocation& operator = (const stack_allocation&) = delete;
+			stack_allocation& operator = (stack_allocation&&) = delete;
 
 		} const m_data;
 
@@ -603,14 +614,24 @@ namespace vm
 		}
 		*/
 
-		template<typename AT> operator const ps3::ptr<T, 1, AT>() const
+		template<typename AT> operator _ptr_base<T, AT>() const
 		{
-			return ps3::ptr<T, 1, AT>::make(m_data.addr);
+			return _ptr_base<T, AT>::make(m_data.addr);
 		}
 
-		template<typename AT> operator const ps3::ptr<const T, 1, AT>() const
+		template<typename AT> operator _ptr_base<const T, AT>() const
 		{
-			return ps3::ptr<const T, 1, AT>::make(m_data.addr);
+			return _ptr_base<const T, AT>::make(m_data.addr);
+		}
+
+		template<typename AT> operator _ptr_base<void, AT>() const
+		{
+			return _ptr_base<void, AT>::make(m_data.addr);
+		}
+
+		template<typename AT> operator _ptr_base<const void, AT>() const
+		{
+			return _ptr_base<const void, AT>::make(m_data.addr);
 		}
 
 		operator T&()

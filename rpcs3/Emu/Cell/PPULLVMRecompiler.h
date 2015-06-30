@@ -4,6 +4,7 @@
 #ifdef LLVM_AVAILABLE
 #define PPU_LLVM_RECOMPILER 1
 
+#include <list>
 #include "Emu/Cell/PPUDecoder.h"
 #include "Emu/Cell/PPUThread.h"
 #include "Emu/Cell/PPUInterpreter.h"
@@ -272,7 +273,8 @@ namespace ppu_recompiler_llvm {
             std::chrono::nanoseconds total_time;
         };
 
-        Compiler(RecompilationEngine & recompilation_engine, const Executable execute_unknown_function, const Executable execute_unknown_block);
+        Compiler(RecompilationEngine & recompilation_engine, const Executable execute_unknown_function,
+                 const Executable execute_unknown_block, bool (*poll_status_function)(PPUThread * ppu_state));
 
         Compiler(const Compiler & other) = delete;
         Compiler(Compiler && other) = delete;
@@ -469,6 +471,7 @@ namespace ppu_recompiler_llvm {
         void ADDI(u32 rd, u32 ra, s32 simm16) override;
         void ADDIS(u32 rd, u32 ra, s32 simm16) override;
         void BC(u32 bo, u32 bi, s32 bd, u32 aa, u32 lk) override;
+        void HACK(u32 id) override;
         void SC(u32 sc_code) override;
         void B(s32 ll, u32 aa, u32 lk) override;
         void MCRF(u32 crfd, u32 crfs) override;
@@ -598,6 +601,7 @@ namespace ppu_recompiler_llvm {
         void LFDX(u32 frd, u32 ra, u32 rb) override;
         void LFDUX(u32 frd, u32 ra, u32 rb) override;
         void STVLX(u32 vs, u32 ra, u32 rb) override;
+        void STDBRX(u32 rd, u32 ra, u32 rb) override;
         void STSWX(u32 rs, u32 ra, u32 rb) override;
         void STWBRX(u32 rs, u32 ra, u32 rb) override;
         void STFSX(u32 frs, u32 ra, u32 rb) override;
@@ -733,6 +737,9 @@ namespace ppu_recompiler_llvm {
         /// Recompilation engine
         RecompilationEngine & m_recompilation_engine;
 
+        /// The function that should be called to check the status of the thread
+        bool (*m_poll_status_function)(PPUThread * ppu_state);
+
         /// The function that will be called to execute unknown functions
         llvm::Function * m_execute_unknown_function;
 
@@ -859,11 +866,11 @@ namespace ppu_recompiler_llvm {
         /// Set the SO bit of XER
         void SetXerSo(llvm::Value * so);
 
-        /// Get USPRG0
-        llvm::Value * GetUsprg0();
+        /// Get VRSAVE
+        llvm::Value * GetVrsave();
 
-        /// Set USPRG0
-        void SetUsprg0(llvm::Value * val_x64);
+        /// Set VRSAVE
+        void SetVrsave(llvm::Value * val_x64);
 
         /// Load FPSCR
         llvm::Value * GetFpscr();
@@ -922,8 +929,8 @@ namespace ppu_recompiler_llvm {
         llvm::Value * IndirectCall(u32 address, llvm::Value * context_i64, bool is_function);
 
         /// Test an instruction against the interpreter
-        template <class PPULLVMRecompilerFn, class PPUInterpreterFn, class... Args>
-        void VerifyInstructionAgainstInterpreter(const char * name, PPULLVMRecompilerFn recomp_fn, PPUInterpreterFn interp_fn, PPUState & input_state, Args... args);
+        template <class... Args>
+        void VerifyInstructionAgainstInterpreter(const char * name, void (Compiler::*recomp_fn)(Args...), void (PPUInterpreter::*interp_fn)(Args...), PPUState & input_state, Args... args);
 
         /// Excute a test
         void RunTest(const char * name, std::function<void()> test_case, std::function<void()> input, std::function<bool(std::string & msg)> check_result);
@@ -1127,7 +1134,7 @@ namespace ppu_recompiler_llvm {
         ExecutionEngine & operator = (const ExecutionEngine & other) = delete;
         ExecutionEngine & operator = (ExecutionEngine && other) = delete;
 
-        u8 DecodeMemory(const u32 address) override;
+        u32 DecodeMemory(const u32 address) override;
 
     private:
         /// PPU processor context
@@ -1162,6 +1169,9 @@ namespace ppu_recompiler_llvm {
 
         /// Execute till the current function returns
         static u32 ExecuteTillReturn(PPUThread * ppu_state, u64 context);
+
+        /// Check thread status. Returns true if the thread must exit.
+        static bool PollStatus(PPUThread * ppu_state);
     };
 
     /// Get the branch type from a branch instruction

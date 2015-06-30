@@ -1,9 +1,12 @@
 #include "stdafx.h"
-#include "Emu/FS/VFS.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
+#include "Emu/IdManager.h"
 #include "Emu/SysCalls/SysCalls.h"
 
+#include "Emu/FS/VFS.h"
+#include "Emu/FS/vfsFile.h"
+#include "Loader/PSF.h"
 #include "sys_memory.h"
 #include "sys_process.h"
 
@@ -27,15 +30,27 @@ s32 sys_process_getppid()
 	return 0;
 }
 
-s32 sys_process_exit(s32 errorcode)
+s32 sys_process_exit(s32 status)
 {
-	sys_process.Warning("sys_process_exit(%d)", errorcode);
-	Emu.Pause();
-	sys_process.Success("Process finished");
-	CallAfter([]()
+	sys_process.Warning("sys_process_exit(status=0x%x)", status);
+
+	LV2_LOCK;
+
+	if (!Emu.IsStopped())
 	{
-		Emu.Stop();
-	});
+		sys_process.Success("Process finished");
+
+		CallAfter([]()
+		{
+			Emu.Stop();
+		});
+
+		while (!Emu.IsStopped())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+
 	return CELL_OK;
 }
 
@@ -65,7 +80,7 @@ void sys_game_process_exitspawn(vm::ptr<const char> path, u32 argv_addr, u32 env
 
 	if (argv_addr)
 	{
-		auto argvp = vm::ptr<vm::bptr<const char>>::make(argv_addr);
+		auto argvp = vm::pptr<const char>::make(argv_addr);
 		while (argvp && *argvp)
 		{
 			argv.push_back(argvp[0].get_ptr());
@@ -79,7 +94,7 @@ void sys_game_process_exitspawn(vm::ptr<const char> path, u32 argv_addr, u32 env
 
 	if (envp_addr)
 	{
-		auto envp = vm::ptr<vm::bptr<const char>>::make(envp_addr);
+		auto envp = vm::pptr<const char>::make(envp_addr);
 		while (envp && *envp)
 		{
 			env.push_back(envp[0].get_ptr());
@@ -139,7 +154,7 @@ void sys_game_process_exitspawn2(vm::ptr<const char> path, u32 argv_addr, u32 en
 
 	if (argv_addr)
 	{
-		auto argvp = vm::ptr<vm::bptr<const char>>::make(argv_addr);
+		auto argvp = vm::pptr<const char>::make(argv_addr);
 		while (argvp && *argvp)
 		{
 			argv.push_back(argvp[0].get_ptr());
@@ -154,7 +169,7 @@ void sys_game_process_exitspawn2(vm::ptr<const char> path, u32 argv_addr, u32 en
 
 	if (envp_addr)
 	{
-		auto envp = vm::ptr<vm::bptr<const char>>::make(envp_addr);
+		auto envp = vm::pptr<const char>::make(envp_addr);
 		while (envp && *envp)
 		{
 			env.push_back(envp[0].get_ptr());
@@ -191,81 +206,78 @@ void sys_game_process_exitspawn2(vm::ptr<const char> path, u32 argv_addr, u32 en
 
 s32 sys_process_get_number_of_object(u32 object, vm::ptr<u32> nump)
 {
-	sys_process.Todo("sys_process_get_number_of_object(object=%d, nump_addr=0x%x)",
-		object, nump.addr());
+	sys_process.Error("sys_process_get_number_of_object(object=0x%x, nump=*0x%x)", object, nump);
 
 	switch(object)
 	{
-	case SYS_MEM_OBJECT:                  *nump = Emu.GetIdManager().GetTypeCount(TYPE_MEM);                 break;
-	case SYS_MUTEX_OBJECT:                *nump = Emu.GetIdManager().GetTypeCount(TYPE_MUTEX);               break;
-	case SYS_COND_OBJECT:                 *nump = Emu.GetIdManager().GetTypeCount(TYPE_COND);                break;
-	case SYS_RWLOCK_OBJECT:               *nump = Emu.GetIdManager().GetTypeCount(TYPE_RWLOCK);              break;
-	case SYS_INTR_TAG_OBJECT:             *nump = Emu.GetIdManager().GetTypeCount(TYPE_INTR_TAG);            break;
-	case SYS_INTR_SERVICE_HANDLE_OBJECT:  *nump = Emu.GetIdManager().GetTypeCount(TYPE_INTR_SERVICE_HANDLE); break;
-	case SYS_EVENT_QUEUE_OBJECT:          *nump = Emu.GetIdManager().GetTypeCount(TYPE_EVENT_QUEUE);         break;
-	case SYS_EVENT_PORT_OBJECT:           *nump = Emu.GetIdManager().GetTypeCount(TYPE_EVENT_PORT);          break;
-	case SYS_TRACE_OBJECT:                *nump = Emu.GetIdManager().GetTypeCount(TYPE_TRACE);               break;
-	case SYS_SPUIMAGE_OBJECT:             *nump = Emu.GetIdManager().GetTypeCount(TYPE_SPUIMAGE);            break;
-	case SYS_PRX_OBJECT:                  *nump = Emu.GetIdManager().GetTypeCount(TYPE_PRX);                 break;
-	case SYS_SPUPORT_OBJECT:              *nump = Emu.GetIdManager().GetTypeCount(TYPE_SPUPORT);             break;
-	case SYS_LWMUTEX_OBJECT:              *nump = Emu.GetIdManager().GetTypeCount(TYPE_LWMUTEX);             break;
-	case SYS_TIMER_OBJECT:                *nump = Emu.GetIdManager().GetTypeCount(TYPE_TIMER);               break;
-	case SYS_SEMAPHORE_OBJECT:            *nump = Emu.GetIdManager().GetTypeCount(TYPE_SEMAPHORE);           break;
-	case SYS_LWCOND_OBJECT:               *nump = Emu.GetIdManager().GetTypeCount(TYPE_LWCOND);              break;
-	case SYS_EVENT_FLAG_OBJECT:           *nump = Emu.GetIdManager().GetTypeCount(TYPE_EVENT_FLAG);          break;
+	case SYS_MEM_OBJECT:
+	case SYS_MUTEX_OBJECT:
+	case SYS_COND_OBJECT:
+	case SYS_RWLOCK_OBJECT:
+	case SYS_INTR_TAG_OBJECT:
+	case SYS_INTR_SERVICE_HANDLE_OBJECT:
+	case SYS_EVENT_QUEUE_OBJECT:
+	case SYS_EVENT_PORT_OBJECT:
+	case SYS_TRACE_OBJECT:
+	case SYS_SPUIMAGE_OBJECT:
+	case SYS_PRX_OBJECT:
+	case SYS_SPUPORT_OBJECT:
+	case SYS_LWMUTEX_OBJECT:
+	case SYS_TIMER_OBJECT:
+	case SYS_SEMAPHORE_OBJECT:
 	case SYS_FS_FD_OBJECT:
-		*nump = Emu.GetIdManager().GetTypeCount(TYPE_FS_FILE) + Emu.GetIdManager().GetTypeCount(TYPE_FS_DIR);
-		break;
-
-	default:      
-		return CELL_EINVAL;
+	case SYS_LWCOND_OBJECT:
+	case SYS_EVENT_FLAG_OBJECT:
+	{
+		*nump = Emu.GetIdManager().get_count_by_type(object);
+		return CELL_OK;
+	}	
 	}
 
-	return CELL_OK;
+	return CELL_EINVAL;
 }
 
 s32 sys_process_get_id(u32 object, vm::ptr<u32> buffer, u32 size, vm::ptr<u32> set_size)
 {
-	sys_process.Todo("sys_process_get_id(object=%d, buffer_addr=0x%x, size=%d, set_size_addr=0x%x)",
-		object, buffer.addr(), size, set_size.addr());
+	sys_process.Error("sys_process_get_id(object=0x%x, buffer=*0x%x, size=%d, set_size=*0x%x)", object, buffer, size, set_size);
 
-	switch(object)
+	switch (object)
 	{
+	case SYS_MEM_OBJECT:
+	case SYS_MUTEX_OBJECT:
+	case SYS_COND_OBJECT:
+	case SYS_RWLOCK_OBJECT:
+	case SYS_INTR_TAG_OBJECT:
+	case SYS_INTR_SERVICE_HANDLE_OBJECT:
+	case SYS_EVENT_QUEUE_OBJECT:
+	case SYS_EVENT_PORT_OBJECT:
+	case SYS_TRACE_OBJECT:
+	case SYS_SPUIMAGE_OBJECT:
+	case SYS_PRX_OBJECT:
+	case SYS_SPUPORT_OBJECT:
+	case SYS_LWMUTEX_OBJECT:
+	case SYS_TIMER_OBJECT:
+	case SYS_SEMAPHORE_OBJECT:
+	case SYS_FS_FD_OBJECT:
+	case SYS_LWCOND_OBJECT:
+	case SYS_EVENT_FLAG_OBJECT:
+	{
+		const auto objects = Emu.GetIdManager().get_IDs_by_type(object);
 
-#define ADD_OBJECTS(type) { \
-	u32 i=0; \
-	const auto objects = Emu.GetIdManager().GetTypeIDs(type); \
-	for(auto id=objects.begin(); i<size && id!=objects.end(); id++, i++) \
-		buffer[i] = *id; \
-	*set_size = i; \
+		u32 i = 0;
+
+		for (auto id = objects.begin(); i < size && id != objects.end(); id++, i++)
+		{
+			buffer[i] = *id;
+		}
+
+		*set_size = i;
+
+		return CELL_OK;
+	}
 	}
 
-	case SYS_MEM_OBJECT:                  ADD_OBJECTS(TYPE_MEM);                 break;
-	case SYS_MUTEX_OBJECT:                ADD_OBJECTS(TYPE_MUTEX);               break;
-	case SYS_COND_OBJECT:                 ADD_OBJECTS(TYPE_COND);                break;
-	case SYS_RWLOCK_OBJECT:               ADD_OBJECTS(TYPE_RWLOCK);              break;
-	case SYS_INTR_TAG_OBJECT:             ADD_OBJECTS(TYPE_INTR_TAG);            break;
-	case SYS_INTR_SERVICE_HANDLE_OBJECT:  ADD_OBJECTS(TYPE_INTR_SERVICE_HANDLE); break;
-	case SYS_EVENT_QUEUE_OBJECT:          ADD_OBJECTS(TYPE_EVENT_QUEUE);         break;
-	case SYS_EVENT_PORT_OBJECT:           ADD_OBJECTS(TYPE_EVENT_PORT);          break;
-	case SYS_TRACE_OBJECT:                ADD_OBJECTS(TYPE_TRACE);               break;
-	case SYS_SPUIMAGE_OBJECT:             ADD_OBJECTS(TYPE_SPUIMAGE);            break;
-	case SYS_PRX_OBJECT:                  ADD_OBJECTS(TYPE_PRX);                 break;
-	case SYS_SPUPORT_OBJECT:              ADD_OBJECTS(TYPE_SPUPORT);             break;
-	case SYS_LWMUTEX_OBJECT:              ADD_OBJECTS(TYPE_LWMUTEX);             break;
-	case SYS_TIMER_OBJECT:                ADD_OBJECTS(TYPE_TIMER);               break;
-	case SYS_SEMAPHORE_OBJECT:            ADD_OBJECTS(TYPE_SEMAPHORE);           break;
-	case SYS_FS_FD_OBJECT:                ADD_OBJECTS(TYPE_FS_FILE);/*TODO:DIR*/ break;
-	case SYS_LWCOND_OBJECT:               ADD_OBJECTS(TYPE_LWCOND);              break;
-	case SYS_EVENT_FLAG_OBJECT:           ADD_OBJECTS(TYPE_EVENT_FLAG);          break;
-
-#undef ADD_OBJECTS
-
-	default:      
-		return CELL_EINVAL;
-	}
-
-	return CELL_OK;
+	return CELL_EINVAL;
 }
 
 s32 process_is_spu_lock_line_reservation_address(u32 addr, u64 flags)
@@ -286,36 +298,32 @@ s32 sys_process_is_spu_lock_line_reservation_address(u32 addr, u64 flags)
 	return process_is_spu_lock_line_reservation_address(addr, flags);
 }
 
-s32 sys_process_get_paramsfo(vm::ptr<u8> buffer)
+s32 _sys_process_get_paramsfo(vm::ptr<char> buffer)
 {
-	sys_process.Todo("sys_process_get_paramsfo(buffer_addr=0x%x) -> CELL_ENOENT", buffer.addr());
-	return CELL_ENOENT;
+	sys_process.Warning("_sys_process_get_paramsfo(buffer=0x%x)", buffer);
 
-	/*//Before uncommenting this code, we should check if it is actually working.
-	MemoryAllocator<be_t<u32>> fd;
-	char filePath [] = "/app_home/../PARAM.SFO";
-	if (!cellFsOpen(Memory.RealToVirtualAddr(filePath), 0, fd, NULL, 0))
+	if (!Emu.GetTitleID().length())
+	{
 		return CELL_ENOENT;
+	}
 
-	MemoryAllocator<be_t<u64>> pos, nread;
-	cellFsLseek(fd, 0, CELL_SEEK_SET, pos); //TODO: Move to the appropriate offset (probably 0x3F7)
-	cellFsRead(fd, buffer.addr(), 40, nread); //WARNING: If offset==0x3F7: The file will end before the buffer (40 bytes) is filled!
-	cellFsClose(fd);
+	memset(buffer.get_ptr(), 0, 0x40);
+	memcpy(buffer.get_ptr() + 1, Emu.GetTitleID().c_str(), std::min<size_t>(Emu.GetTitleID().length(), 9));
 
-	return CELL_OK;*/
+	return CELL_OK;
 }
 
 s32 process_get_sdk_version(u32 pid, s32& ver)
 {
-	// TODO: get correct SDK version for selected pid
-	ver = Emu.m_sdk_version;
+	// get correct SDK version for selected pid
+	ver = Emu.GetSDKVersion();
 
 	return CELL_OK;
 }
 
 s32 sys_process_get_sdk_version(u32 pid, vm::ptr<s32> version)
 {
-	sys_process.Warning("sys_process_get_sdk_version(pid=%d, version_addr=0x%x)", pid, version.addr());
+	sys_process.Warning("sys_process_get_sdk_version(pid=0x%x, version_addr=0x%x)", pid, version.addr());
 
 	s32 sdk_ver;
 	s32 ret = process_get_sdk_version(pid, sdk_ver);
@@ -332,13 +340,13 @@ s32 sys_process_get_sdk_version(u32 pid, vm::ptr<s32> version)
 
 s32 sys_process_kill(u32 pid)
 {
-	sys_process.Todo("sys_process_kill(pid=%d)", pid);
+	sys_process.Todo("sys_process_kill(pid=0x%x)", pid);
 	return CELL_OK;
 }
 
 s32 sys_process_wait_for_child(u32 pid, vm::ptr<u32> status, u64 unk)
 {
-	sys_process.Todo("sys_process_wait_for_child(pid=%d, status_addr=0x%x, unk=0x%llx",
+	sys_process.Todo("sys_process_wait_for_child(pid=0x%x, status_addr=0x%x, unk=0x%llx",
 		pid, status.addr(), unk);
 	return CELL_OK;
 }

@@ -1,16 +1,18 @@
 #include "stdafx.h"
 #include "Utilities/Log.h"
-#include "Utilities/rFile.h"
+#include "Utilities/File.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 
 #include "Emu/GameInfo.h"
-#include "Emu/SysCalls/Static.h"
+#include "Emu/ARMv7/PSVFuncList.h"
+#include "Emu/ARMv7/PSVObjectList.h"
 #include "Emu/SysCalls/ModuleManager.h"
 #include "Emu/Cell/PPUThread.h"
 #include "Emu/Cell/SPUThread.h"
 #include "Emu/Cell/PPUInstrTable.h"
 #include "Emu/FS/vfsFile.h"
+#include "Emu/FS/vfsLocalFile.h"
 #include "Emu/FS/vfsDeviceLocalFile.h"
 #include "Emu/DbgCommand.h"
 
@@ -23,12 +25,13 @@
 #include "Emu/RSX/GSManager.h"
 #include "Emu/Audio/AudioManager.h"
 #include "Emu/FS/VFS.h"
-#include "Emu/SysCalls/SyncPrimitivesManager.h"
+#include "Emu/Event.h"
 
 #include "Loader/PSF.h"
+#include "Loader/ELF64.h"
+#include "Loader/ELF32.h"
 
 #include "../Crypto/unself.h"
-#include <cstdlib>
 #include <fstream>
 using namespace PPU_instr;
 
@@ -36,10 +39,7 @@ static const std::string& BreakPointsDBName = "BreakPoints.dat";
 static const u16 bpdb_version = 0x1000;
 extern std::atomic<u32> g_thread_count;
 
-ModuleInitializer::ModuleInitializer()
-{
-	Emu.AddModuleInit(std::move(std::unique_ptr<ModuleInitializer>(this)));
-}
+extern void finalize_ppu_exec_map();
 
 Emulator::Emulator()
 	: m_status(Stopped)
@@ -49,14 +49,12 @@ Emulator::Emulator()
 	, m_pad_manager(new PadManager())
 	, m_keyboard_manager(new KeyboardManager())
 	, m_mouse_manager(new MouseManager())
-	, m_id_manager(new IdManager())
+	, m_id_manager(new ID_manager())
 	, m_gs_manager(new GSManager())
 	, m_audio_manager(new AudioManager())
 	, m_callback_manager(new CallbackManager())
 	, m_event_manager(new EventManager())
-	, m_sfunc_manager(new StaticFuncManager())
 	, m_module_manager(new ModuleManager())
-	, m_sync_prim_manager(new SyncPrimManager())
 	, m_vfs(new VFS())
 {
 	m_loader.register_handler(new loader::handlers::elf32);
@@ -74,19 +72,12 @@ Emulator::~Emulator()
 	delete m_audio_manager;
 	delete m_callback_manager;
 	delete m_event_manager;
-	delete m_sfunc_manager;
 	delete m_module_manager;
-	delete m_sync_prim_manager;
 	delete m_vfs;
 }
 
 void Emulator::Init()
 {
-	while(m_modules_init.size())
-	{
-		m_modules_init[0]->Init();
-		m_modules_init.erase(m_modules_init.begin());
-	}
 }
 
 void Emulator::SetPath(const std::string& path, const std::string& elf_path)
@@ -107,40 +98,41 @@ void Emulator::SetTitle(const std::string& title)
 
 void Emulator::CheckStatus()
 {
-	//auto& threads = GetCPU().GetThreads();
+	//auto threads = GetCPU().GetThreads();
+
 	//if (!threads.size())
 	//{
 	//	Stop();
 	//	return;	
 	//}
 
-	//bool IsAllPaused = true;
-	//for (u32 i = 0; i < threads.size(); ++i)
+	//bool AllPaused = true;
+
+	//for (auto& t : threads)
 	//{
-	//	if (threads[i]->IsPaused()) continue;
-	//	IsAllPaused = false;
+	//	if (t->IsPaused()) continue;
+	//	AllPaused = false;
 	//	break;
 	//}
 
-	//if(IsAllPaused)
+	//if (AllPaused)
 	//{
-	//	//ConLog.Warning("all paused!");
 	//	Pause();
 	//	return;
 	//}
 
-	//bool IsAllStoped = true;
-	//for (u32 i = 0; i < threads.size(); ++i)
+	//bool AllStopped = true;
+
+	//for (auto& t : threads)
 	//{
-	//	if (threads[i]->IsStopped()) continue;
-	//	IsAllStoped = false;
+	//	if (t->IsStopped()) continue;
+	//	AllStopped = false;
 	//	break;
 	//}
 
-	//if (IsAllStoped)
+	//if (AllStopped)
 	//{
-	//	//LOG_WARNING(GENERAL, "all stoped!");
-	//	Pause(); //Stop();
+	//	Pause();
 	//}
 }
 
@@ -155,11 +147,12 @@ bool Emulator::BootGame(const std::string& path, bool direct)
 		"/USRDIR/EBOOT.BIN",
 		"/EBOOT.BIN"
 	};
+
 	auto curpath = path;
 
 	if (direct)
 	{
-		if (rFile::Access(curpath, rFile::read))
+		if (fs::is_file(curpath))
 		{
 			SetPath(curpath);
 			Load();
@@ -172,7 +165,7 @@ bool Emulator::BootGame(const std::string& path, bool direct)
 	{
 		curpath = path + elf_path[i];
 		
-		if (rFile::Access(curpath, rFile::read))
+		if (fs::is_file(curpath))
 		{
 			SetPath(curpath);
 			Load();
@@ -186,32 +179,71 @@ bool Emulator::BootGame(const std::string& path, bool direct)
 
 void Emulator::Load()
 {
-	GetModuleManager().init();
+	GetModuleManager().Init();
 
-	if (!rExists(m_path)) return;
+	if (!fs::is_file(m_path)) return;
+
+	const std::string elf_dir = m_path.substr(0, m_path.find_last_of("/\\", std::string::npos, 2) + 1);
 
 	if (IsSelf(m_path))
 	{
-		std::string elf_path = rFileName(m_path).GetPath();
+		const std::string full_name = m_path.substr(elf_dir.length());
 
-		if (fmt::CmpNoCase(rFileName(m_path).GetFullName(),"EBOOT.BIN") == 0)
+		const std::string base_name = full_name.substr(0, full_name.find_last_of('.', std::string::npos));
+
+		const std::string ext = full_name.substr(base_name.length());
+
+		if (fmt::toupper(full_name) == "EBOOT.BIN")
 		{
-			elf_path += "/BOOT.BIN";
+			m_path = elf_dir + "BOOT.BIN";
+		}
+		else if (fmt::toupper(ext) == ".SELF")
+		{
+			m_path = elf_dir + base_name + ".elf";
+		}
+		else if (fmt::toupper(ext) == ".SPRX")
+		{
+			m_path = elf_dir + base_name + ".prx";
 		}
 		else
 		{
-			elf_path += "/" + rFileName(m_path).GetName() + ".elf";
+			m_path = elf_dir + base_name + ".decrypted" + ext;
 		}
 
-		if (!DecryptSelf(elf_path, m_path))
-			return;
+		LOG_NOTICE(LOADER, "Decrypting '%s%s'...", elf_dir, full_name);
 
-		m_path = elf_path;
+		if (!DecryptSelf(m_path, elf_dir + full_name))
+		{
+			return;
+		}
 	}
 
 	LOG_NOTICE(LOADER, "Loading '%s'...", m_path.c_str());
 	GetInfo().Reset();
-	GetVFS().Init(rFileName(m_path).GetPath());
+	GetVFS().Init(elf_dir);
+
+	// /dev_bdvd/ mounting
+	vfsFile f("/app_home/../dev_bdvd.path");
+	if (f.IsOpened())
+	{
+		// load specified /dev_bdvd/ directory and mount it
+		std::string bdvd;
+		bdvd.resize(f.GetSize());
+		f.Read(&bdvd[0], bdvd.size());
+
+		Emu.GetVFS().Mount("/dev_bdvd/", bdvd, new vfsDeviceLocalFile());
+	}
+	else if (fs::is_file(elf_dir + "../../PS3_DISC.SFB")) // guess loading disc game
+	{
+		const auto dir_list = fmt::split(elf_dir, { "/", "\\" });
+
+		// check latest two directories
+		if (dir_list.size() >= 2 && dir_list.back() == "USRDIR" && *(dir_list.end() - 2) == "PS3_GAME")
+		{
+			// mount detected /dev_bdvd/ directory
+			Emu.GetVFS().Mount("/dev_bdvd/", elf_dir.substr(0, elf_dir.length() - 17), new vfsDeviceLocalFile());
+		}
+	}
 
 	LOG_NOTICE(LOADER, " "); //used to be skip_line
 	LOG_NOTICE(LOADER, "Mount info:");
@@ -221,9 +253,8 @@ void Emulator::Load()
 	}
 
 	LOG_NOTICE(LOADER, " "); //used to be skip_line
-	vfsFile sfo("/app_home/../PARAM.SFO");
-	PSFLoader psf(sfo);
-	psf.Load(false);
+	f.Open("/app_home/../PARAM.SFO");
+	const PSFLoader psf(f);
 	std::string title = psf.GetString("TITLE");
 	std::string title_id = psf.GetString("TITLE_ID");
 	LOG_NOTICE(LOADER, "Title: %s", title.c_str());
@@ -232,57 +263,28 @@ void Emulator::Load()
 	title.length() ? SetTitle(title) : SetTitle(m_path);
 	SetTitleID(title_id);
 
-	// bdvd inserting imitation
-	vfsFile f1("/app_home/../dev_bdvd.path");
-	if (f1.IsOpened())
-	{
-		std::string bdvd;
-		bdvd.resize(f1.GetSize());
-		f1.Read(&bdvd[0], bdvd.size());
-
-		// load desired /dev_bdvd/ real directory and remount
-		Emu.GetVFS().Mount("/dev_bdvd/", bdvd, new vfsDeviceLocalFile());
-		LOG_NOTICE(LOADER, "/dev_bdvd/ remounted into %s", bdvd.c_str());
-	}
-	LOG_NOTICE(LOADER, " "); //used to be skip_line
-
 	if (m_elf_path.empty())
 	{
 		GetVFS().GetDeviceLocal(m_path, m_elf_path);
+
+		LOG_NOTICE(LOADER, "Elf path: %s", m_elf_path);
 	}
 
-	vfsFile f(m_elf_path);
+	f.Open(m_elf_path);
 
 	if (!f.IsOpened())
 	{
-		LOG_ERROR(LOADER, "Elf not found! (%s - %s)", m_path.c_str(), m_elf_path.c_str());
+		LOG_ERROR(LOADER, "Opening '%s' failed", m_path.c_str());
 		return;
 	}
 
 	if (!m_loader.load(f))
 	{
-		LOG_ERROR(LOADER, "Loading '%s' failed", m_elf_path.c_str());
+		LOG_ERROR(LOADER, "Loading '%s' failed", m_path.c_str());
 		vm::close();
 		return;
 	}
-
-	// trying to load some info from PARAM.SFO
-	vfsFile f2("/app_home/../PARAM.SFO");
-	if (f2.IsOpened())
-	{
-		PSFLoader psf(f2);
-		if (psf.Load(false))
-		{
-			std::string version = psf.GetString("PS3_SYSTEM_VER");
-
-			const size_t dot = version.find('.');
-			if (dot != std::string::npos)
-			{
-				Emu.m_sdk_version = (std::stoi(version, nullptr, 16) << 20) | ((std::stoi(version.substr(dot + 1), nullptr, 16) & 0xffff) << 4) | 1;
-			}
-		}
-	}
-
+	
 	LoadPoints(BreakPointsDBName);
 
 	m_status = Ready;
@@ -324,9 +326,11 @@ void Emulator::Pause()
 	if (!IsRunning()) return;
 	SendDbgCommand(DID_PAUSE_EMU);
 
-	if (InterlockedCompareExchange((volatile u32*)&m_status, Paused, Running) == Running)
+	if (sync_bool_compare_and_swap((volatile u32*)&m_status, Running, Paused))
 	{
 		SendDbgCommand(DID_PAUSED_EMU);
+
+		GetCallbackManager().RunPauseCallbacks(true);
 	}
 }
 
@@ -340,24 +344,42 @@ void Emulator::Resume()
 	CheckStatus();
 
 	SendDbgCommand(DID_RESUMED_EMU);
+
+	GetCallbackManager().RunPauseCallbacks(false);
 }
+
+extern std::map<u32, std::string> g_armv7_dump;
 
 void Emulator::Stop()
 {
 	if(IsStopped()) return;
 
 	SendDbgCommand(DID_STOP_EMU);
+
 	m_status = Stopped;
 
-	u32 uncounted = 0;
-	while (true)
 	{
-		if (g_thread_count <= uncounted)
+		auto threads = GetCPU().GetThreads();
+
+		for (auto& t : threads)
 		{
-			LOG_NOTICE(HLE, "All threads stopped...");
-			break;
+			t->AddEvent(CPU_EVENT_STOP);
 		}
+	}
+
+	while (g_thread_count)
+	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	LOG_NOTICE(HLE, "All threads stopped...");
+
+	finalize_psv_modules();
+	clear_all_psv_objects();
+
+	for (auto& v : decltype(g_armv7_dump)(std::move(g_armv7_dump)))
+	{
+		LOG_NOTICE(ARMv7, v.second);
 	}
 
 	m_rsx_callback = 0;
@@ -374,17 +396,17 @@ void Emulator::Stop()
 	GetAudioManager().Close();
 	GetEventManager().Clear();
 	GetCPU().Close();
-	GetIdManager().Clear();
+	GetIdManager().clear();
 	GetPadManager().Close();
 	GetKeyboardManager().Close();
 	GetMouseManager().Close();
 	GetCallbackManager().Clear();
-	GetModuleManager().UnloadModules();
-	GetSFuncManager().StaticFinalize();
-	GetSyncPrimManager().Close();
+	GetModuleManager().Close();
 
 	CurGameInfo.Reset();
 	Memory.Close();
+	
+	finalize_ppu_exec_map();
 
 	SendDbgCommand(DID_STOPPED_EMU);
 }
@@ -396,51 +418,79 @@ void Emulator::SavePoints(const std::string& path)
 	u32 break_count = (u32)m_break_points.size();
 	u32 marked_count = (u32)m_marked_points.size();
 
-	f << bpdb_version << break_count << marked_count;
+	f.write((char*)(&bpdb_version), sizeof(bpdb_version));
+	f.write((char*)(&break_count), sizeof(break_count));
+	f.write((char*)(&marked_count), sizeof(marked_count));
 	
 	if (break_count)
 	{
-		f.write(reinterpret_cast<char*>(&m_break_points[0]), sizeof(u64) * break_count);
+		f.write((char*)(m_break_points.data()), sizeof(u64) * break_count);
 	}
 
 	if (marked_count)
 	{
-		f.write(reinterpret_cast<char*>(&m_marked_points[0]), sizeof(u64) * marked_count);
+		f.write((char*)(m_marked_points.data()), sizeof(u64) * marked_count);
 	}
 }
 
-void Emulator::LoadPoints(const std::string& path)
+bool Emulator::LoadPoints(const std::string& path)
 {
-	struct stat buf;
-	if (!stat(path.c_str(), &buf))
-		return;
+	if (!fs::is_file(path)) return false;
 	std::ifstream f(path, std::ios::binary);
 	if (!f.is_open())
-		return;
+		return false;
 	f.seekg(0, std::ios::end);
-	int length = (int)f.tellg();
+	u64 length = (u64)f.tellg();
 	f.seekg(0, std::ios::beg);
-	u32 break_count, marked_count;
-	u16 version;
-	f >> version >> break_count >> marked_count;
 
-	if (version != bpdb_version || (sizeof(u16) + break_count * sizeof(u64) + sizeof(u32) + marked_count * sizeof(u64) + sizeof(u32)) != length)
+	u16 version;
+	u32 break_count, marked_count;
+
+	u64 expected_length = sizeof(bpdb_version) + sizeof(break_count) + sizeof(marked_count);
+
+	if (length < expected_length)
 	{
-		LOG_ERROR(LOADER, "'%s' is broken", path.c_str());
-		return;
+		LOG_ERROR(LOADER,
+			"'%s' breakpoint db is broken (file is too short, length=0x%x)",
+			path, length);
+		return false;
+	}
+
+	f.read((char*)(&version), sizeof(version));
+
+	if (version != bpdb_version)
+	{
+		LOG_ERROR(LOADER,
+			"'%s' breakpoint db version is unsupported (version=0x%x, length=0x%x)",
+			path, version, length);
+		return false;
+	}
+
+	f.read((char*)(&break_count), sizeof(break_count));
+	f.read((char*)(&marked_count), sizeof(marked_count));
+	expected_length += break_count * sizeof(u64) + marked_count * sizeof(u64);
+
+	if (expected_length != length)
+	{
+		LOG_ERROR(LOADER,
+			"'%s' breakpoint db format is incorrect "
+			"(version=0x%x, break_count=0x%x, marked_count=0x%x, length=0x%x)",
+			path, version, break_count, marked_count, length);
+		return false;
 	}
 
 	if (break_count > 0)
 	{
 		m_break_points.resize(break_count);
-		f.read(reinterpret_cast<char*>(&m_break_points[0]), sizeof(u64) * break_count);
+		f.read((char*)(m_break_points.data()), sizeof(u64) * break_count);
 	}
 
 	if (marked_count > 0)
 	{
 		m_marked_points.resize(marked_count);
-		f.read(reinterpret_cast<char*>(&m_marked_points[0]), sizeof(u64) * marked_count);
+		f.read((char*)(m_marked_points.data()), sizeof(u64) * marked_count);
 	}
+	return true;
 }
 
 Emulator Emu;

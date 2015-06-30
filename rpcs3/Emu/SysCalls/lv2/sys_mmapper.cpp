@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "Emu/Memory/Memory.h"
+#include "Emu/System.h"
+#include "Emu/IdManager.h"
 #include "Emu/SysCalls/SysCalls.h"
 
 #include "sys_memory.h"
@@ -75,21 +77,23 @@ s32 sys_mmapper_allocate_memory(u32 size, u64 flags, vm::ptr<u32> mem_id)
 	}
 
 	// Generate a new mem ID.
-	std::shared_ptr<mmapper_info> info(new mmapper_info(size, flags));
-	*mem_id = sys_mmapper.GetNewId(info);
+	*mem_id = Emu.GetIdManager().make<mmapper_info>(size, flags);
 
 	return CELL_OK;
 }
 
 s32 sys_mmapper_allocate_memory_from_container(u32 size, u32 cid, u64 flags, vm::ptr<u32> mem_id)
 {
-	sys_mmapper.Warning("sys_mmapper_allocate_memory_from_container(size=0x%x, cid=%d, flags=0x%llx, mem_id_addr=0x%x)", 
+	sys_mmapper.Warning("sys_mmapper_allocate_memory_from_container(size=0x%x, cid=0x%x, flags=0x%llx, mem_id_addr=0x%x)", 
 		size, cid, flags, mem_id.addr());
 
 	// Check if this container ID is valid.
-	std::shared_ptr<MemoryContainerInfo> ct;
-	if(!sys_mmapper.CheckId(cid, ct))
+	const auto ct = Emu.GetIdManager().get<MemoryContainerInfo>(cid);
+
+	if (!ct)
+	{
 		return CELL_ESRCH;
+	}
 
 	// Check page granularity.
 	switch(flags & (SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_PAGE_SIZE_64K))
@@ -111,8 +115,7 @@ s32 sys_mmapper_allocate_memory_from_container(u32 size, u32 cid, u64 flags, vm:
 	ct->size = size;
 
 	// Generate a new mem ID.
-	std::shared_ptr<mmapper_info> info(new mmapper_info(ct->size, flags));
-	*mem_id = sys_mmapper.GetNewId(info, TYPE_MEM);
+	*mem_id = Emu.GetIdManager().make<mmapper_info>(ct->size, flags);
 
 	return CELL_OK;
 }
@@ -140,12 +143,15 @@ s32 sys_mmapper_free_memory(u32 mem_id)
 	sys_mmapper.Warning("sys_mmapper_free_memory(mem_id=0x%x)", mem_id);
 
 	// Check if this mem ID is valid.
-	std::shared_ptr<mmapper_info> info;
-	if(!sys_mmapper.CheckId(mem_id, info))
+	const auto info = Emu.GetIdManager().get<mmapper_info>(mem_id);
+
+	if (!info)
+	{
 		return CELL_ESRCH;
+	}
 
 	// Release the allocated memory and remove the ID.
-	sys_mmapper.RemoveId(mem_id);
+	Emu.GetIdManager().remove<mmapper_info>(mem_id);
 
 	return CELL_OK;
 }
@@ -155,9 +161,12 @@ s32 sys_mmapper_map_memory(u32 start_addr, u32 mem_id, u64 flags)
 	sys_mmapper.Warning("sys_mmapper_map_memory(start_addr=0x%x, mem_id=0x%x, flags=0x%llx)", start_addr, mem_id, flags);
 
 	// Check if this mem ID is valid.
-	std::shared_ptr<mmapper_info> info;
-	if(!sys_mmapper.CheckId(mem_id, info))
+	const auto info = Emu.GetIdManager().get<mmapper_info>(mem_id);
+
+	if (!info)
+	{
 		return CELL_ESRCH;
+	}
 
 	// Map the memory into the process address.
 	if(!Memory.Map(start_addr, info->size))
@@ -175,9 +184,12 @@ s32 sys_mmapper_search_and_map(u32 start_addr, u32 mem_id, u64 flags, u32 alloc_
 		start_addr, mem_id, flags, alloc_addr);
 
 	// Check if this mem ID is valid.
-	std::shared_ptr<mmapper_info> info;
-	if(!sys_mmapper.CheckId(mem_id, info))
+	const auto info = Emu.GetIdManager().get<mmapper_info>(mem_id);
+
+	if (!info)
+	{
 		return CELL_ESRCH;
+	}
 	
 	// Search for a mappable address.
 	u32 addr;

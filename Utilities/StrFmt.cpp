@@ -1,10 +1,82 @@
 #include "stdafx.h"
-#include "StrFmt.h"
+#pragma warning(push)
+#pragma message("TODO: remove wx dependency: <wx/string.h>")
+#pragma warning(disable : 4996)
 #include <wx/string.h>
+#pragma warning(pop)
+
+std::string u128::to_hex() const
+{
+	return fmt::format("%016llx%016llx", _u64[1], _u64[0]);
+}
+
+std::string u128::to_xyzw() const
+{
+	return fmt::Format("x: %g y: %g z: %g w: %g", _f[3], _f[2], _f[1], _f[0]);
+}
+
+std::string fmt::to_hex(u64 value, size_t count)
+{
+	assert(count - 1 < 16);
+	count = std::max<u64>(count, 16 - cntlz64(value) / 4);
+
+	char res[16] = {};
+
+	for (size_t i = count - 1; ~i; i--, value /= 16)
+	{
+		res[i] = "0123456789abcdef"[value % 16];
+	}
+
+	return std::string(res, count);
+}
+
+std::string fmt::to_udec(u64 value)
+{
+	char res[20] = {};
+	size_t first = sizeof(res);
+
+	if (!value)
+	{
+		res[--first] = '0';
+	}
+
+	for (; value; value /= 10)
+	{
+		res[--first] = '0' + (value % 10);
+	}
+
+	return std::string(&res[first], sizeof(res) - first);
+}
+
+std::string fmt::to_sdec(s64 svalue)
+{
+	const bool sign = svalue < 0;
+	u64 value = sign ? -svalue : svalue;
+
+	char res[20] = {};
+	size_t first = sizeof(res);
+
+	if (!value)
+	{
+		res[--first] = '0';
+	}
+
+	for (; value; value /= 10)
+	{
+		res[--first] = '0' + (value % 10);
+	}
+
+	if (sign)
+	{
+		res[--first] = '-';
+	}
+
+	return std::string(&res[first], sizeof(res) - first);
+}
 
 extern const std::string fmt::placeholder = "???";
 
-std::string replace_first(const std::string& src, const std::string& from, const std::string& to)
+std::string fmt::replace_first(const std::string& src, const std::string& from, const std::string& to)
 {
 	auto pos = src.find(from);
 
@@ -16,15 +88,16 @@ std::string replace_first(const std::string& src, const std::string& from, const
 	return (pos ? src.substr(0, pos) + to : to) + std::string(src.c_str() + pos + from.length());
 }
 
-std::string replace_all(std::string src, const std::string& from, const std::string& to)
+std::string fmt::replace_all(const std::string &src, const std::string& from, const std::string& to)
 {
-	for (auto pos = src.find(from); pos != std::string::npos; src.find(from, pos + 1))
+	std::string target = src;
+	for (auto pos = target.find(from); pos != std::string::npos; pos = target.find(from, pos + 1))
 	{
-		src = (pos ? src.substr(0, pos) + to : to) + std::string(src.c_str() + pos + from.length());
+		target = (pos ? target.substr(0, pos) + to : to) + std::string(target.c_str() + pos + from.length());
 		pos += to.length();
 	}
 
-	return src;
+	return target;
 }
 
 //TODO: move this wx Stuff somewhere else
@@ -135,52 +208,40 @@ std::vector<std::string> fmt::split(const std::string& source, std::initializer_
 	return std::move(result);
 }
 
-std::string fmt::merge(std::vector<std::string> source, const std::string& separator)
-{
-	if (!source.size())
-	{
-		return "";
-	}
-
-	std::string result;
-
-	for (int i = 0; i < source.size() - 1; ++i)
-	{
-		result += source[i] + separator;
-	}
-
-	return result + source[source.size() - 1];
-}
-
-std::string fmt::merge(std::initializer_list<std::vector<std::string>> sources, const std::string& separator)
-{
-	if (!sources.size())
-	{
-		return "";
-	}
-
-	std::string result;
-	bool first = true;
-
-	for (auto &v : sources)
-	{
-		if (first)
-		{
-			result = fmt::merge(v, separator);
-			first = false;
-		}
-		else
-		{
-			result += separator + fmt::merge(v, separator);
-		}
-	}
-
-	return result;
-}
-
 std::string fmt::tolower(std::string source)
 {
 	std::transform(source.begin(), source.end(), source.begin(), ::tolower);
+
+	return source;
+}
+
+std::string fmt::toupper(std::string source)
+{
+	std::transform(source.begin(), source.end(), source.begin(), ::toupper);
+
+	return source;
+}
+
+std::string fmt::escape(std::string source)
+{
+	const std::pair<std::string, std::string> escape_list[] =
+	{
+		{ "\\", "\\\\" },
+		{ "\a", "\\a" },
+		{ "\b", "\\b" },
+		{ "\f", "\\f" },
+		{ "\n", "\\n\n" },
+		{ "\r", "\\r" },
+		{ "\t", "\\t" },
+		{ "\v", "\\v" },
+	};
+
+	source = fmt::replace_all(source, escape_list);
+
+	for (char c = 0; c < 32; c++)
+	{
+		if (c != '\n') source = fmt::replace_all(source, std::string(1, c), fmt::Format("\\x%02X", c));
+	}
 
 	return source;
 }

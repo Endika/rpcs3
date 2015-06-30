@@ -1,5 +1,6 @@
 #pragma once
-#include "Emu/Cell/PPCThread.h"
+#include "Emu/Cell/Common.h"
+#include "Emu/CPU/CPUThread.h"
 #include "Emu/Memory/vm.h"
 
 enum
@@ -53,14 +54,8 @@ enum FPSCR_EXP
 	FPSCR_VXSOFT    = 0x00000400,
 	FPSCR_VXSQRT    = 0x00000200,
 	FPSCR_VXCVI     = 0x00000100,
-};
 
-enum FPSCR_RN
-{
-	FPSCR_RN_NEAR = 0,
-	FPSCR_RN_ZERO = 1,
-	FPSCR_RN_PINF = 2,
-	FPSCR_RN_MINF = 3,
+	FPSCR_VX_ALL    = FPSCR_VXSNAN | FPSCR_VXISI | FPSCR_VXIDI | FPSCR_VXZDZ | FPSCR_VXIMZ | FPSCR_VXVC | FPSCR_VXSOFT | FPSCR_VXSQRT | FPSCR_VXCVI,
 };
 
 static const u64 DOUBLE_SIGN = 0x8000000000000000ULL;
@@ -368,6 +363,7 @@ struct PPCdouble
 		case _FPCLASS_PD:    return FPR_PD;
 		case _FPCLASS_PN:    return FPR_PN;
 		case _FPCLASS_PINF:  return FPR_PINF;
+		default: throw fmt::Format("PPCdouble::UpdateType() -> unknown fpclass (0x%04x).", fpc);
 		}
 #else
 		switch (fpc)
@@ -379,8 +375,6 @@ struct PPCdouble
 		default:            return std::signbit(_double) ? FPR_NN : FPR_PN;
 		}
 #endif
-
-		throw fmt::Format("PPCdouble::UpdateType() -> unknown fpclass (0x%04x).", fpc);
 	}
 
 	FPRType GetType() const
@@ -441,18 +435,22 @@ struct PPCdouble
 
 	PPCdouble() : _u64(0)
 	{
+		type = UpdateType();
 	}
 
 	PPCdouble(double val) : _double(val)
 	{
+		type = UpdateType();
 	}
 
 	PPCdouble(u64 val) : _u64(val)
 	{
+		type = UpdateType();
 	}
 
 	PPCdouble(u32 val) : _u64(val)
 	{
+		type = UpdateType();
 	}
 };
 
@@ -469,7 +467,7 @@ struct FPRdouble
 	static int Cmp(PPCdouble a, PPCdouble b);
 };
 
-class PPUThread : public PPCThread
+class PPUThread : public CPUThread
 {
 public:
 	PPCdouble FPR[32]; //Floating Point Register
@@ -531,27 +529,13 @@ public:
 	u64 LR;     //SPR 0x008 : Link Register
 	u64 CTR;    //SPR 0x009 : Count Register
 
-	u64 USPRG[8];	//SPR 0x100 - 0x107: User-SPR General-Purpose Registers
+	u32 VRSAVE; //SPR 0x100: VR Save/Restore Register (32 bits)
+
 	u64 SPRG[8]; //SPR 0x110 - 0x117 : SPR General-Purpose Registers
 
 	//TBR : Time-Base Registers
-	union
-	{
-		u64 TB;	//TBR 0x10C - 0x10D
+	u64 TB;	//TBR 0x10C - 0x10D
 
-		struct
-		{
-			u32 TBH;
-			u32 TBL;
-		};
-	};
-
-	u64 cycle;
-
-	u64 R_ADDR; // reservation address
-	u64 R_VALUE; // reservation value (BE)
-
-	u32 owned_mutexes;
 	std::function<void(PPUThread& CPU)> custom_task;
 
 public:
@@ -652,7 +636,7 @@ public:
 		UpdateCRn<T>(0, val, 0);
 	}
 
-	template<typename T> void UpdateCR1()
+	void UpdateCR1()
 	{
 		SetCR_LT(1, FPSCR.FX);
 		SetCR_GT(1, FPSCR.FEX);
@@ -670,10 +654,37 @@ public:
 	bool IsCarry(const u64 a, const u64 b) { return (a + b) < a; }
 	bool IsCarry(const u64 a, const u64 b, const u64 c) { return IsCarry(a, b) || IsCarry(a + b, c); }
 
+	void SetOV(const bool set)
+	{
+		XER.OV = set;
+		XER.SO |= set;
+	}
+
+	void UpdateFPSCR_FEX()
+	{
+		const u32 exceptions = (FPSCR.FPSCR >> 25) & 0x1F;
+		const u32 enabled = (FPSCR.FPSCR >> 3) & 0x1F;
+		if (exceptions & enabled) FPSCR.FEX = 1;
+	}
+
+	void UpdateFPSCR_VX()
+	{
+		if (FPSCR.FPSCR & FPSCR_VX_ALL) FPSCR.VX = 1;
+	}
+
+	void SetFPSCR(const u32 val)
+	{
+		FPSCR.FPSCR = val & ~(FPSCR_FEX | FPSCR_VX);
+		UpdateFPSCR_VX();
+		UpdateFPSCR_FEX();
+	}
+
 	void SetFPSCRException(const FPSCR_EXP mask)
 	{
 		if ((FPSCR.FPSCR & mask) != mask) FPSCR.FX = 1;
 		FPSCR.FPSCR |= mask;
+		UpdateFPSCR_VX();
+		UpdateFPSCR_FEX();
 	}
 
 	void SetFPSCR_FI(const u32 val)
@@ -781,11 +792,27 @@ public:
 		return false;
 	}
 
+	u64 get_next_gpr_arg(u32& g_count, u32& f_count, u32& v_count)
+	{
+		assert(!f_count && !v_count); // not supported
+
+		if (g_count < 8)
+		{
+			return GPR[g_count++ + 3];
+		}
+		else
+		{
+			return GetStackArg(++g_count);
+		}
+	}
+
 public:
-	virtual void InitRegs();
-	virtual void Task();
+	virtual void InitRegs() override;
+	virtual void InitStack() override;
+	virtual void CloseStack() override;
+	virtual void Task() override;
 	u64 GetStackArg(s32 i);
-	u64 FastCall2(u32 addr, u32 rtoc);
+	void FastCall2(u32 addr, u32 rtoc);
 	void FastStop();
 	virtual void DoRun() override;
 
@@ -813,87 +840,172 @@ public:
 	ppu_thread& gpr(uint index, u64 value);
 };
 
-template<typename T, size_t size = sizeof(T)>
+template<typename T, bool is_enum = std::is_enum<T>::value>
 struct cast_ppu_gpr
 {
-	static_assert(sizeof(T) <= 8, "Type for cast_ppu_gpr is invalid (too big)");
+	static_assert(is_enum, "Invalid type for cast_ppu_gpr");
 
-	static u64 func(const T& value)
+	force_inline static u64 to_gpr(const T& value)
 	{
-		u64 result = 0;
-		(T&)result = value;
-		return result;
+		return cast_ppu_gpr<std::underlying_type_t<T>>::to_gpr(static_cast<std::underlying_type_t<T>>(value));
 	}
-};
 
-template<typename T>
-struct cast_ppu_gpr<T, 1>
-{
-	static u64 func(const T& value)
+	force_inline static T from_gpr(const u64 reg)
 	{
-		return (u8&)value;
-	}
-};
-
-template<typename T>
-struct cast_ppu_gpr<T, 2>
-{
-	static u64 func(const T& value)
-	{
-		return (u16&)value;
-	}
-};
-
-template<typename T>
-struct cast_ppu_gpr<T, 4>
-{
-	static u64 func(const T& value)
-	{
-		return (u32&)value;
-	}
-};
-
-template<typename T>
-struct cast_ppu_gpr<T, 8>
-{
-	static u64 func(const T& value)
-	{
-		return (u64&)value;
+		return static_cast<T>(cast_ppu_gpr<std::underlying_type_t<T>>::from_gpr(reg));
 	}
 };
 
 template<>
-struct cast_ppu_gpr<s8, 1>
+struct cast_ppu_gpr<u8, false>
 {
-	static u64 func(const s8& value)
+	force_inline static u64 to_gpr(const u8& value)
 	{
 		return value;
+	}
+
+	force_inline static u8 from_gpr(const u64 reg)
+	{
+		return static_cast<u8>(reg);
 	}
 };
 
 template<>
-struct cast_ppu_gpr<s16, 2>
+struct cast_ppu_gpr<u16, false>
 {
-	static u64 func(const s16& value)
+	force_inline static u64 to_gpr(const u16& value)
 	{
 		return value;
+	}
+
+	force_inline static u16 from_gpr(const u64 reg)
+	{
+		return static_cast<u16>(reg);
 	}
 };
 
 template<>
-struct cast_ppu_gpr<s32, 4>
+struct cast_ppu_gpr<u32, false>
 {
-	static u64 func(const s32& value)
+	force_inline static u64 to_gpr(const u32& value)
 	{
 		return value;
+	}
+
+	force_inline static u32 from_gpr(const u64 reg)
+	{
+		return static_cast<u32>(reg);
+	}
+};
+
+#ifdef __APPLE__
+template<>
+struct cast_ppu_gpr<unsigned long, false>
+{
+	force_inline static u64 to_gpr(const unsigned long& value)
+	{
+		return value;
+	}
+
+	force_inline static unsigned long from_gpr(const u64 reg)
+	{
+		return static_cast<unsigned long>(reg);
+	}
+};
+#endif
+
+template<>
+struct cast_ppu_gpr<u64, false>
+{
+	force_inline static u64 to_gpr(const u64& value)
+	{
+		return value;
+	}
+
+	force_inline static u64 from_gpr(const u64 reg)
+	{
+		return reg;
 	}
 };
 
 template<>
-struct cast_ppu_gpr<s64, 8>
+struct cast_ppu_gpr<s8, false>
 {
-	static u64 func(const s64& value)
+	force_inline static u64 to_gpr(const s8& value)
 	{
 		return value;
 	}
+
+	force_inline static s8 from_gpr(const u64 reg)
+	{
+		return static_cast<s8>(reg);
+	}
 };
+
+template<>
+struct cast_ppu_gpr<s16, false>
+{
+	force_inline static u64 to_gpr(const s16& value)
+	{
+		return value;
+	}
+
+	force_inline static s16 from_gpr(const u64 reg)
+	{
+		return static_cast<s16>(reg);
+	}
+};
+
+template<>
+struct cast_ppu_gpr<s32, false>
+{
+	force_inline static u64 to_gpr(const s32& value)
+	{
+		return value;
+	}
+
+	force_inline static s32 from_gpr(const u64 reg)
+	{
+		return static_cast<s32>(reg);
+	}
+};
+
+template<>
+struct cast_ppu_gpr<s64, false>
+{
+	force_inline static u64 to_gpr(const s64& value)
+	{
+		return value;
+	}
+
+	force_inline static s64 from_gpr(const u64 reg)
+	{
+		return static_cast<s64>(reg);
+	}
+};
+
+template<>
+struct cast_ppu_gpr<bool, false>
+{
+	force_inline static u64 to_gpr(const bool& value)
+	{
+		return value;
+	}
+
+	force_inline static bool from_gpr(const u64& reg)
+	{
+		return reinterpret_cast<const bool&>(reg);
+	}
+};
+
+template<typename T>
+force_inline u64 cast_to_ppu_gpr(const T& value)
+{
+	return cast_ppu_gpr<T>::to_gpr(value);
+}
+
+template<typename T>
+force_inline T cast_from_ppu_gpr(const u64 reg)
+{
+	return cast_ppu_gpr<T>::from_gpr(reg);
+}

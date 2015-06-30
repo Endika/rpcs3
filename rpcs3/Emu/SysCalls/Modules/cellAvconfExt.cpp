@@ -4,17 +4,17 @@
 #include "Emu/SysCalls/Modules.h"
 #include "Emu/RSX/sysutil_video.h"
 
-Module *cellAvconfExt = nullptr;
+extern Module cellAvconfExt;
 
-int cellVideoOutConvertCursorColor()
+s32 cellVideoOutConvertCursorColor()
 {
 	UNIMPLEMENTED_FUNC(cellAvconfExt);
 	return CELL_OK;
 }
 
-int cellVideoOutGetScreenSize(u32 videoOut, vm::ptr<float> screenSize)
+s32 cellVideoOutGetScreenSize(u32 videoOut, vm::ptr<float> screenSize)
 {
-	cellAvconfExt->Warning("cellVideoOutGetScreenSize(videoOut=%d, screenSize_addr=0x%x)", videoOut, screenSize.addr());
+	cellAvconfExt.Warning("cellVideoOutGetScreenSize(videoOut=%d, screenSize=*0x%x)", videoOut, screenSize);
 
 	if (videoOut != CELL_VIDEO_OUT_PRIMARY)
 	{
@@ -23,8 +23,8 @@ int cellVideoOutGetScreenSize(u32 videoOut, vm::ptr<float> screenSize)
 
 	//TODO: Use virtual screen size
 #ifdef _WIN32
-	HDC screen = GetDC(NULL);
-	float diagonal = roundf(sqrtf((powf(float(GetDeviceCaps(screen, HORZSIZE)), 2) + powf(float(GetDeviceCaps(screen, VERTSIZE)), 2))) * 0.0393f);
+	//HDC screen = GetDC(NULL);
+	//float diagonal = roundf(sqrtf((powf(float(GetDeviceCaps(screen, HORZSIZE)), 2) + powf(float(GetDeviceCaps(screen, VERTSIZE)), 2))) * 0.0393f);
 #else
 	// TODO: Linux implementation, without using wx
 	// float diagonal = roundf(sqrtf((powf(wxGetDisplaySizeMM().GetWidth(), 2) + powf(wxGetDisplaySizeMM().GetHeight(), 2))) * 0.0393f);
@@ -32,33 +32,29 @@ int cellVideoOutGetScreenSize(u32 videoOut, vm::ptr<float> screenSize)
 
 	if (Ini.GS3DTV.GetValue())
 	{
-#ifdef _WIN32
-		*screenSize = diagonal;
-#endif
+		*screenSize = 24.0f;
 		return CELL_OK;
 	}
 
 	return CELL_VIDEO_OUT_ERROR_VALUE_IS_NOT_SET;
 }
 
-int cellVideoOutGetGamma()
+s32 cellVideoOutGetGamma()
 {
 	UNIMPLEMENTED_FUNC(cellAvconfExt);
 	return CELL_OK;
 }
 
-int cellVideoOutSetGamma()
+s32 cellVideoOutSetGamma()
 {
 	UNIMPLEMENTED_FUNC(cellAvconfExt);
 	return CELL_OK;
 }
 
-void cellAvconfExt_init(Module *pxThis)
+Module cellAvconfExt("cellAvconfExt", []()
 {
-	cellAvconfExt = pxThis;
-
 	REG_FUNC(cellAvconfExt, cellVideoOutConvertCursorColor);
 	REG_FUNC(cellAvconfExt, cellVideoOutGetScreenSize);
 	REG_FUNC(cellAvconfExt, cellVideoOutGetGamma);
 	REG_FUNC(cellAvconfExt, cellVideoOutSetGamma);
-}
+});

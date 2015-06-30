@@ -14,6 +14,8 @@
 #endif
 
 // This header should be frontend-agnostic, so don't assume wx includes everything
+#pragma warning( disable : 4800 )
+
 #include <cstdio>
 #include <cstring>
 #include <cassert>
@@ -25,17 +27,17 @@
 #include <condition_variable>
 #include <memory>
 #include <vector>
+#include <queue>
 #include <set>
 #include <array>
 #include <string>
-#include <ostream>
-#include <sstream>
 #include <functional>
 #include <algorithm>
 #include <random>
 #include <unordered_set>
+#include <map>
+#include <unordered_map>
 
-#include <sys/stat.h>
 #include "Utilities/GNU.h"
 
 typedef unsigned int uint;
@@ -50,13 +52,31 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
-template<typename T> __forceinline T align(const T addr, int align)
+template<typename T> force_inline T align(const T addr, int align)
 {
 	return (addr + (align - 1)) & ~(align - 1);
 }
 
-#include "Utilities/StrFmt.h"
+template<typename T> struct sizeof32_t
+{
+	static const u32 value = static_cast<u32>(sizeof(T));
+
+	static_assert(value == sizeof(T), "sizeof32() error: sizeof() is too big");
+};
+
+// return 32 bit sizeof() to avoid widening/narrowing conversions with size_t
+#define sizeof32(type) sizeof32_t<type>::value
+
+template<typename T> using func_def = T; // workaround for MSVC bug: `using X = func_def<void()>;` instead of `using X = void();`
+
 #include "Utilities/BEType.h"
+#include "Utilities/StrFmt.h"
+
+#include "Emu/Memory/atomic.h"
+
+template<typename T> struct ID_type;
+
+#define REG_ID_TYPE(t, id) template<> struct ID_type<t> { static const u32 type = id; }
 
 #define _PRGNAME_ "RPCS3"
 #define _PRGVER_ "0.0.0.5"

@@ -122,7 +122,7 @@ void VHDDExplorer::Import(const std::string& path, const std::string& to)
 		return;
 	}
 
-	if(!m_hdd->Open(to, vfsWrite))
+	if(!m_hdd->Open(to, o_write))
 	{
 		wxMessageBox("IMPORT ERROR: file open error.");
 		return;
@@ -190,7 +190,7 @@ void VHDDExplorer::OnDropFiles(wxDropFilesEvent& event)
 
 	for(int i=0; i<count; ++i)
 	{
-		LOG_NOTICE(HLE, "Importing '%s'", dropped[i].wx_str());
+		LOG_NOTICE(HLE, "Importing '%s'", fmt::ToUTF8(dropped[i]).c_str());
 		Import(fmt::ToUTF8(dropped[i]), fmt::ToUTF8(wxFileName(dropped[i]).GetFullName()));
 	}
 

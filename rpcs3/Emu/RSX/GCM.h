@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Emu/Memory/atomic_type.h"
-
 enum
 {
 	CELL_GCM_DISPLAY_HSYNC            = 1,
@@ -203,9 +201,9 @@ enum
 
 struct CellGcmControl
 {
-	atomic_t<u32> put;
-	atomic_t<u32> get;
-	atomic_t<u32> ref;
+	atomic_be_t<u32> put;
+	atomic_be_t<u32> get;
+	atomic_be_t<u32> ref;
 };
 
 struct CellGcmConfig
@@ -220,7 +218,7 @@ struct CellGcmConfig
 
 struct CellGcmContextData;
 
-typedef s32(*CellGcmContextCallback)(vm::ptr<CellGcmContextData>, u32);
+typedef s32(CellGcmContextCallback)(vm::ptr<CellGcmContextData>, u32);
 
 struct CellGcmContextData
 {
@@ -235,6 +233,7 @@ struct gcmInfo
 	u32 config_addr;
 	u32 context_addr;
 	u32 control_addr;
+	u32 label_addr;
 };
 
 struct CellGcmSurface

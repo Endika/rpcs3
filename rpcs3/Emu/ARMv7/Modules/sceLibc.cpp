@@ -1,63 +1,271 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "Utilities/Log.h"
 #include "Emu/System.h"
-#include "Emu/Memory/Memory.h"
 #include "Emu/ARMv7/PSVFuncList.h"
+#include "Emu/ARMv7/ARMv7Thread.h"
+#include "Emu/ARMv7/ARMv7Callback.h"
 
 extern psv_log_base sceLibc;
 
-namespace sce_libc_func
+vm::psv::ptr<void> g_dso;
+
+typedef void(atexit_func_t)(vm::psv::ptr<void>);
+
+std::vector<std::function<void(ARMv7Context&)>> g_atexit;
+
+std::mutex g_atexit_mutex;
+
+std::string armv7_fmt(ARMv7Context& context, vm::psv::ptr<const char> fmt, u32 g_count, u32 f_count, u32 v_count)
 {
-	void __cxa_atexit()
+	std::string result;
+
+	for (char c = *fmt++; c; c = *fmt++)
 	{
-		sceLibc.Todo(__FUNCTION__);
-		Emu.Pause();
+		switch (c)
+		{
+		case '%':
+		{
+			const auto start = fmt - 1;
+
+			// read flags
+			// TODO:: Syphurith: Sorry i can not classify/understand these lines exactly..
+			const bool plus_sign = *fmt == '+' ? fmt++, true : false;
+			const bool minus_sign = *fmt == '-' ? fmt++, true : false;
+			const bool space_sign = *fmt == ' ' ? fmt++, true : false;
+			const bool number_sign = *fmt == '#' ? fmt++, true : false;
+			const bool zero_padding = *fmt == '0' ? fmt++, true : false;
+
+			// read width
+			const u32 width = [&]() -> u32
+			{
+				u32 width = 0;
+
+				if (*fmt == '*')
+				{
+					fmt++;
+					return context.get_next_gpr_arg(g_count, f_count, v_count);
+				}
+
+				while (*fmt - '0' < 10)
+				{
+					width = width * 10 + (*fmt++ - '0');
+				}
+
+				return width;
+			}();
+
+			// read precision
+			const u32 prec = [&]() -> u32
+			{
+				u32 prec = 0;
+
+				if (*fmt != '.')
+				{
+					return 0;
+				}
+
+				if (*++fmt == '*')
+				{
+					fmt++;
+					return context.get_next_gpr_arg(g_count, f_count, v_count);
+				}
+
+				while (*fmt - '0' < 10)
+				{
+					prec = prec * 10 + (*fmt++ - '0');
+				}
+
+				return prec;
+			}();
+
+			switch (char cf = *fmt++)
+			{
+			case '%':
+			{
+				if (plus_sign || minus_sign || space_sign || number_sign || zero_padding || width || prec) break;
+
+				result += '%';
+				continue;
+			}
+			case 'd':
+			case 'i':
+			{
+				// signed decimal
+				const s64 value = context.get_next_gpr_arg(g_count, f_count, v_count);
+
+				if (plus_sign || minus_sign || space_sign || number_sign || zero_padding || width || prec) break;
+
+				result += fmt::to_sdec(value);
+				continue;
+			}
+			case 'x':
+			case 'X':
+			{
+				// hexadecimal
+				const u64 value = context.get_next_gpr_arg(g_count, f_count, v_count);
+
+				if (plus_sign || minus_sign || space_sign || prec) break;
+
+				if (number_sign && value)
+				{
+					result += cf == 'x' ? "0x" : "0X";
+				}
+
+				const std::string& hex = cf == 'x' ? fmt::to_hex(value) : fmt::toupper(fmt::to_hex(value));
+
+				if (hex.length() >= width)
+				{
+					result += hex;
+				}
+				else if (zero_padding)
+				{
+					result += std::string(width - hex.length(), '0') + hex;
+				}
+				else
+				{
+					result += hex + std::string(width - hex.length(), ' ');
+				}
+				continue;
+			}
+			case 's':
+			{
+				// string
+				auto string = vm::psv::ptr<const char>::make(context.get_next_gpr_arg(g_count, f_count, v_count));
+
+				if (plus_sign || minus_sign || space_sign || number_sign || zero_padding || width || prec) break;
+
+				result += string.get_ptr();
+				continue;
+			}
+			}
+
+			throw fmt::format("armv7_fmt(): unknown formatting: '%s'", start.get_ptr());
+		}
+		}
+
+		result += c;
 	}
 
-	void exit()
-	{
-		sceLibc.Error("exit()");
-		Emu.Pause();
+	return result;
+}
 
-		sceLibc.Success("Process finished");
-		CallAfter([]()
+namespace sce_libc_func
+{
+	void __cxa_atexit(vm::psv::ptr<atexit_func_t> func, vm::psv::ptr<void> arg, vm::psv::ptr<void> dso)
+	{
+		sceLibc.Warning("__cxa_atexit(func=*0x%x, arg=*0x%x, dso=*0x%x)", func, arg, dso);
+		
+		std::lock_guard<std::mutex> lock(g_atexit_mutex);
+
+		g_atexit.insert(g_atexit.begin(), [func, arg, dso](ARMv7Context& context)
 		{
-			Emu.Stop();
+			func(context, arg);
 		});
 	}
 
-	void printf(vm::psv::ptr<const char> fmt)
+	void __aeabi_atexit(vm::psv::ptr<void> arg, vm::psv::ptr<atexit_func_t> func, vm::psv::ptr<void> dso)
 	{
-		sceLibc.Error("printf(fmt_addr=0x%x)", fmt.addr());
+		sceLibc.Warning("__aeabi_atexit(arg=*0x%x, func=*0x%x, dso=*0x%x)", arg, func, dso);
 
-		LOG_NOTICE(TTY, "%s", fmt.get_ptr());
+		std::lock_guard<std::mutex> lock(g_atexit_mutex);
+
+		g_atexit.insert(g_atexit.begin(), [func, arg, dso](ARMv7Context& context)
+		{
+			func(context, arg);
+		});
 	}
 
-	void __cxa_set_dso_handle_main()
+	void exit(ARMv7Context& context)
 	{
-		sceLibc.Error("__cxa_set_dso_handle_main()");
+		sceLibc.Warning("exit()");
+
+		std::lock_guard<std::mutex> lock(g_atexit_mutex);
+
+		if (!Emu.IsStopped())
+		{
+			for (auto func : decltype(g_atexit)(std::move(g_atexit)))
+			{
+				func(context);
+			}
+
+			sceLibc.Success("Process finished");
+
+			CallAfter([]()
+			{
+				Emu.Stop();
+			});
+
+			while (!Emu.IsStopped())
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		}
+	}
+
+	void printf(ARMv7Context& context, vm::psv::ptr<const char> fmt) // va_args...
+	{
+		sceLibc.Warning("printf(fmt=*0x%x)", fmt);
+		sceLibc.Log("*** *fmt = '%s'", fmt.get_ptr());
+
+		const std::string& result = armv7_fmt(context, fmt, 1, 0, 0);
+		sceLibc.Log("***     -> '%s'", result);
+
+		LOG_NOTICE(TTY, result);
+	}
+
+	void sprintf(ARMv7Context& context, vm::psv::ptr<char> str, vm::psv::ptr<const char> fmt) // va_args...
+	{
+		sceLibc.Warning("sprintf(str=*0x%x, fmt=*0x%x)", str, fmt);
+		sceLibc.Log("*** *fmt = '%s'", fmt.get_ptr());
+
+		const std::string& result = armv7_fmt(context, fmt, 2, 0, 0);
+		sceLibc.Log("***     -> '%s'", result);
+
+		::memcpy(str.get_ptr(), result.c_str(), result.size() + 1);
+	}
+
+	void __cxa_set_dso_handle_main(vm::psv::ptr<void> dso)
+	{
+		sceLibc.Warning("__cxa_set_dso_handle_main(dso=*0x%x)", dso);
+
+		g_dso = dso;
 	}
 
 	void memcpy(vm::psv::ptr<void> dst, vm::psv::ptr<const void> src, u32 size)
 	{
-		sceLibc.Error("memcpy(dst_addr=0x%x, src_addr=0x%x, size=0x%x)", dst.addr(), src.addr(), size);
+		sceLibc.Warning("memcpy(dst=*0x%x, src=*0x%x, size=0x%x)", dst, src, size);
 
 		::memcpy(dst.get_ptr(), src.get_ptr(), size);
 	}
 
-	void _Assert(vm::psv::ptr<const char> text, vm::psv::ptr<const char> func)
+	void memset(vm::psv::ptr<void> dst, s32 value, u32 size)
 	{
-		sceLibc.Error("_Assert(text_addr=0x%x, func_addr=0x%x)", text.addr(), func.addr());
+		sceLibc.Warning("memset(dst=*0x%x, value=%d, size=0x%x)", dst, value, size);
 
-		LOG_ERROR(TTY, "%s : %s", func.get_ptr(), text.get_ptr());
+		::memset(dst.get_ptr(), value, size);
+	}
+
+	void _Assert(ARMv7Context& context, vm::psv::ptr<const char> text, vm::psv::ptr<const char> func)
+	{
+		sceLibc.Error("_Assert(text=*0x%x, func=*0x%x)", text, func);
+
+		LOG_ERROR(TTY, "%s : %s\n", func.get_ptr(), text.get_ptr());
+		LOG_NOTICE(ARMv7, context.thread.RegsToString());
 		Emu.Pause();
 	}
 }
 
-#define REG_FUNC(nid, name) reg_psv_func(nid, &sceLibc, #name, &sce_libc_func::name)
+#define REG_FUNC(nid, name) reg_psv_func(nid, &sceLibc, #name, sce_libc_func::name)
 
-psv_log_base sceLibc = []() -> psv_log_base
+psv_log_base sceLibc("SceLibc", []()
 {
+	g_dso = vm::null;
+	g_atexit.clear();
+
+	sceLibc.on_load = nullptr;
+	sceLibc.on_unload = nullptr;
+	sceLibc.on_stop = nullptr;
+
 	REG_FUNC(0xE4531F85, _Assert);
 	//REG_FUNC(0xE71C5CDE, _Stoul);
 	//REG_FUNC(0x7A5CA6A3, _Stoulx);
@@ -147,7 +355,7 @@ psv_log_base sceLibc = []() -> psv_log_base
 	//REG_FUNC(0x395490DA, setbuf);
 	//REG_FUNC(0x2CA980A0, setvbuf);
 	//REG_FUNC(0xA1BFF606, snprintf);
-	//REG_FUNC(0x7449B359, sprintf);
+	REG_FUNC(0x7449B359, sprintf);
 	//REG_FUNC(0xEC585241, sscanf);
 	//REG_FUNC(0x2BCB3F01, ungetc);
 	//REG_FUNC(0xF7915685, vfprintf);
@@ -200,7 +408,7 @@ psv_log_base sceLibc = []() -> psv_log_base
 	//REG_FUNC(0x7747F6D7, memcmp);
 	REG_FUNC(0x7205BFDB, memcpy);
 	//REG_FUNC(0xAF5C218D, memmove);
-	//REG_FUNC(0x6DC1F0D8, memset);
+	REG_FUNC(0x6DC1F0D8, memset);
 	//REG_FUNC(0x1434FA46, strcat);
 	//REG_FUNC(0xB9336E16, strchr);
 	//REG_FUNC(0x1B58FA3B, strcmp);
@@ -317,7 +525,7 @@ psv_log_base sceLibc = []() -> psv_log_base
 	//REG_FUNC(0x9D885076, _Towctrans);
 	//REG_FUNC(0xE980110A, _Iswctype);
 	REG_FUNC(0x33b83b70, __cxa_atexit);
-	//REG_FUNC(0xEDC939E1, __aeabi_atexit);
+	REG_FUNC(0xEDC939E1, __aeabi_atexit);
 	//REG_FUNC(0xB538BF48, __cxa_finalize);
 	//REG_FUNC(0xD0310E31, __cxa_guard_acquire);
 	//REG_FUNC(0x4ED1056F, __cxa_guard_release);
@@ -350,6 +558,4 @@ psv_log_base sceLibc = []() -> psv_log_base
 	//REG_FUNC(0x677CDE35, _Snan);
 	//REG_FUNC(0x7D35108B, _FSnan);
 	//REG_FUNC(0x48AEEF2A, _LSnan);
-
-	return psv_log_base("SceLibc");
-}();
+});

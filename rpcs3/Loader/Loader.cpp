@@ -19,11 +19,13 @@ namespace loader
 					return true;
 				}
 
-				LOG_ERROR(LOADER, "loader::load() failed: %s", i->get_error_code().c_str());
+				LOG_NOTICE(LOADER, "loader::load() failed: %s", i->get_error_code().c_str());
 			}
-
-			LOG_ERROR(LOADER, "loader::init() failed: %s", i->get_error_code().c_str());
-			stream.Seek(i->get_stream_offset());
+			else
+			{
+				LOG_NOTICE(LOADER, "loader::init() failed: %s", i->get_error_code().c_str());
+				stream.Seek(i->get_stream_offset());
+			}
 		}
 
 		return false;
@@ -67,7 +69,7 @@ const std::string Ehdr_OS_ABIToString(const u8 os_abi)
 	case 0x66: return "Cell OS LV-2";
 	};
 
-	return fmt::Format("Unknown (%x)", os_abi);
+	return fmt::Format("Unknown (0x%x)", os_abi);
 }
 
 const std::string Ehdr_MachineToString(const u16 machine)
@@ -80,7 +82,7 @@ const std::string Ehdr_MachineToString(const u16 machine)
 	case MACHINE_ARM:	return "ARM";
 	};
 
-	return fmt::Format("Unknown (%x)", machine);
+	return fmt::Format("Unknown (0x%x)", machine);
 }
 
 const std::string Phdr_FlagsToString(u32 flags)
@@ -105,7 +107,7 @@ const std::string Phdr_FlagsToString(u32 flags)
 	flags &= ~spu << 0x14;
 	flags &= ~rsx << 0x18;
 
-	if(flags != 0) return fmt::Format("Unknown %s PPU[%x] SPU[%x] RSX[%x]", ret.c_str(), ppu, spu, rsx);
+	if(flags != 0) return fmt::Format("Unknown %s PPU[0x%x] SPU[0x%x] RSX[0x%x]", ret.c_str(), ppu, spu, rsx);
 
 	ret += "PPU[" + FLAGS_TO_STRING(ppu) + "] ";
 	ret += "SPU[" + FLAGS_TO_STRING(spu) + "] ";
@@ -125,5 +127,5 @@ const std::string Phdr_TypeToString(const u32 type)
 	case 0x60000002: return "LOOS+2";
 	};
 
-	return fmt::Format("Unknown (%x)", type);
+	return fmt::Format("Unknown (0x%x)", type);
 }

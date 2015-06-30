@@ -1,12 +1,14 @@
 #pragma once
-#include "Emu/Memory/atomic_type.h"
-#include "PPCThread.h"
-#include "Emu/SysCalls/lv2/sleep_queue_type.h"
-#include "Emu/SysCalls/lv2/sys_event.h"
-#include "Emu/Event.h"
+#include "Emu/Cell/Common.h"
+#include "Emu/CPU/CPUThread.h"
+#include "Emu/Cell/SPUContext.h"
 #include "MFC.h"
 
-enum SPUchannels
+struct lv2_event_queue_t;
+struct spu_group_t;
+
+// SPU Channels
+enum : u32
 {
 	SPU_RdEventStat     = 0,  //Read event status with mask applied
 	SPU_WrEventMask     = 1,  //Write event mask
@@ -24,7 +26,8 @@ enum SPUchannels
 	SPU_WrOutIntrMbox   = 30, //Write outbound interrupt mailbox contents (interrupting PPU)
 };
 
-enum MFCchannels
+// MFC Channels
+enum : u32
 {
 	MFC_WrMSSyncReq     = 9,  //Write multisource synchronization request
 	MFC_RdTagMask       = 12, //Read tag mask
@@ -42,7 +45,8 @@ enum MFCchannels
 	MFC_RdAtomicStat    = 27, //Read completion status of last completed immediate MFC atomic update command
 };
 
-enum SPUEvents
+// SPU Events
+enum : u32
 {
 	SPU_EVENT_MS = 0x1000, // multisource synchronization event
 	SPU_EVENT_A  = 0x800, // privileged attention event
@@ -60,12 +64,31 @@ enum SPUEvents
 	SPU_EVENT_IMPLEMENTED = SPU_EVENT_LR,
 };
 
-enum
+// SPU Class 0 Interrupts
+enum : u64
 {
-	SPU_RUNCNTL_STOP     = 0,
-	SPU_RUNCNTL_RUNNABLE = 1,
+	SPU_INT0_STAT_DMA_ALIGNMENT_INT   = (1ull << 0),
+	SPU_INT0_STAT_INVALID_DMA_CMD_INT = (1ull << 1),
+	SPU_INT0_STAT_SPU_ERROR_INT       = (1ull << 2),
 };
 
+// SPU Class 2 Interrupts
+enum : u64
+{
+	SPU_INT2_STAT_MAILBOX_INT                  = (1ull << 0),
+	SPU_INT2_STAT_SPU_STOP_AND_SIGNAL_INT      = (1ull << 1),
+	SPU_INT2_STAT_SPU_HALT_OR_STEP_INT         = (1ull << 2),
+	SPU_INT2_STAT_DMA_TAG_GROUP_COMPLETION_INT = (1ull << 3),
+	SPU_INT2_STAT_SPU_MAILBOX_THRESHOLD_INT    = (1ull << 4),
+};
+
+enum
+{
+	SPU_RUNCNTL_STOP_REQUEST = 0,
+	SPU_RUNCNTL_RUN_REQUEST  = 1,
+};
+
+// SPU Status Register bits (not accurate)
 enum
 {
 	SPU_STATUS_STOPPED             = 0x0,
@@ -79,10 +102,9 @@ enum
 enum : u32
 {
 	SYS_SPU_THREAD_BASE_LOW  = 0xf0000000,
-	SYS_SPU_THREAD_BASE_MASK = 0xfffffff,
-	SYS_SPU_THREAD_OFFSET    = 0x00100000,
-	SYS_SPU_THREAD_SNR1      = 0x05400c,
-	SYS_SPU_THREAD_SNR2      = 0x05C00c,
+	SYS_SPU_THREAD_OFFSET    = 0x100000,
+	SYS_SPU_THREAD_SNR1      = 0x5400c,
+	SYS_SPU_THREAD_SNR2      = 0x5C00c,
 };
 
 enum
@@ -107,105 +129,316 @@ enum
 	SPU_RdSigNotify2_offs = 0x1C00C,
 };
 
-#define mmToU64Ptr(x) ((u64*)(&x))
-#define mmToU32Ptr(x) ((u32*)(&x))
-#define mmToU16Ptr(x) ((u16*)(&x))
-#define mmToU8Ptr(x) ((u8*)(&x))
-
-struct g_imm_table_struct
+union spu_channel_t
 {
-	//u16 cntb_table[65536];
-
-	__m128i fsmb_table[65536];
-	__m128i fsmh_table[256];
-	__m128i fsm_table[16];
-
-	__m128i sldq_pshufb[32];
-	__m128i srdq_pshufb[32];
-	__m128i rldq_pshufb[16];
-
-	g_imm_table_struct()
+	struct sync_var_t
 	{
-		/*static_assert(offsetof(g_imm_table_struct, cntb_table) == 0, "offsetof(cntb_table) != 0");
-		for (u32 i = 0; i < sizeof(cntb_table) / sizeof(cntb_table[0]); i++)
-		{
-		u32 cnt_low = 0, cnt_high = 0;
-		for (u32 j = 0; j < 8; j++)
-		{
-		cnt_low += (i >> j) & 1;
-		cnt_high += (i >> (j + 8)) & 1;
-		}
-		cntb_table[i] = (cnt_high << 8) | cnt_low;
-		}*/
-		for (u32 i = 0; i < sizeof(fsm_table) / sizeof(fsm_table[0]); i++)
-		{
+		u32 count;
+		u32 value;
+	};
 
-			for (u32 j = 0; j < 4; j++) mmToU32Ptr(fsm_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
-		}
-		for (u32 i = 0; i < sizeof(fsmh_table) / sizeof(fsmh_table[0]); i++)
+	atomic<sync_var_t> sync_var; // atomic variable
+
+public:
+	bool push(u32 value)
+	{
+		bool out_result;
+
+		sync_var.atomic_op([&out_result, value](sync_var_t& data)
 		{
-			for (u32 j = 0; j < 8; j++) mmToU16Ptr(fsmh_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
-		}
-		for (u32 i = 0; i < sizeof(fsmb_table) / sizeof(fsmb_table[0]); i++)
+			if ((out_result = data.count == 0))
+			{
+				data.count = 1;
+				data.value = value;
+			}
+		});
+
+		return out_result;
+	}
+
+	void push_bit_or(u32 value)
+	{
+		sync_var._or({ 1, value });
+	}
+
+	void push_uncond(u32 value)
+	{
+		sync_var.exchange({ 1, value });
+	}
+
+	bool pop(u32& out_value)
+	{
+		bool out_result;
+
+		sync_var.atomic_op([&out_result, &out_value](sync_var_t& data)
 		{
-			for (u32 j = 0; j < 16; j++) mmToU8Ptr(fsmb_table[i])[j] = (i & (1 << j)) ? ~0 : 0;
+			if ((out_result = data.count != 0))
+			{
+				out_value = data.value;
+				data.count = 0;
+				data.value = 0;
+			}
+		});
+
+		return out_result;
+	}
+
+	u32 pop_uncond()
+	{
+		u32 out_value;
+
+		sync_var.atomic_op([&out_value](sync_var_t& data)
+		{
+			out_value = data.value;
+			data.count = 0;
+			// value is not cleared and may be read again
+		});
+
+		return out_value;
+	}
+
+	void set_value(u32 value, u32 count = 1)
+	{
+		sync_var.write_relaxed({ count, value });
+	}
+
+	u32 get_value() volatile
+	{
+		return sync_var.data.value;
+	}
+
+	u32 get_count() volatile
+	{
+		return sync_var.data.count;
+	}
+};
+
+struct spu_channel_4_t
+{
+	struct sync_var_t
+	{
+		u32 count;
+		u32 value0;
+		u32 value1;
+		u32 value2;
+	};
+
+	atomic<sync_var_t> sync_var;
+	atomic<u32> value3;
+
+public:
+	void clear()
+	{
+		sync_var = {};
+		value3 = {};
+	}
+
+	void push_uncond(u32 value)
+	{
+		value3.exchange(value);
+
+		sync_var.atomic_op([value](sync_var_t& data)
+		{
+			switch (data.count++)
+			{
+			case 0: data.value0 = value; break;
+			case 1: data.value1 = value; break;
+			case 2: data.value2 = value; break;
+			default: data.count = 4;
+			}
+		});
+	}
+
+	// out_count: count after removing first element
+	bool pop(u32& out_value, u32& out_count)
+	{
+		bool out_result;
+
+		const u32 last_value = value3.read_sync();
+
+		sync_var.atomic_op([&out_result, &out_value, &out_count, last_value](sync_var_t& data)
+		{
+			if ((out_result = (data.count != 0)))
+			{
+				out_value = data.value0;
+				out_count = --data.count;
+
+				data.value0 = data.value1;
+				data.value1 = data.value2;
+				data.value2 = last_value;
+			}
+		});
+
+		return out_result;
+	}
+
+	u32 get_count() volatile
+	{
+		return sync_var.data.count;
+	}
+};
+
+struct spu_interrupt_tag_t
+{
+	atomic<u64> mask;
+	atomic<u64> stat;
+
+	atomic<s32> assigned;
+
+	std::mutex handler_mutex;
+	std::condition_variable cond;
+
+public:
+	void set(u64 ints)
+	{
+		// leave only enabled interrupts
+		ints &= mask.read_relaxed();
+
+		if (ints && ~stat._or(ints) & ints)
+		{
+			// notify if at least 1 bit was set
+			cond.notify_all();
 		}
+	}
+
+	void clear(u64 ints)
+	{
+		stat &= ~ints;
+	}
+
+	void clear()
+	{
+		mask = {};
+		stat = {};
+
+		assigned = { -1 };
+	}
+};
+
+struct g_spu_imm_table_t
+{
+	u128 fsmb[65536]; // table for FSMB, FSMBI instructions
+	u128 fsmh[256]; // table for FSMH instruction
+	u128 fsm[16]; // table for FSM instruction
+
+	u128 sldq_pshufb[32]; // table for SHLQBYBI, SHLQBY, SHLQBYI instructions
+	u128 srdq_pshufb[32]; // table for ROTQMBYBI, ROTQMBY, ROTQMBYI instructions
+	u128 rldq_pshufb[16]; // table for ROTQBYBI, ROTQBY, ROTQBYI instructions
+
+	class scale_table_t
+	{
+		std::array<__m128, 155 + 174> m_data;
+
+	public:
+		scale_table_t()
+		{
+			for (s32 i = -155; i < 174; i++)
+			{
+				m_data[i + 155] = _mm_set1_ps(static_cast<float>(exp2(i)));
+			}
+		}
+
+		force_inline __m128 operator [] (s32 scale) const
+		{
+			return m_data[scale + 155];
+		}
+	}
+	const scale;
+
+	g_spu_imm_table_t()
+	{
+		for (u32 i = 0; i < sizeof(fsm) / sizeof(fsm[0]); i++)
+		{
+			for (u32 j = 0; j < 4; j++)
+			{
+				fsm[i]._u32[j] = (i & (1 << j)) ? 0xffffffff : 0;
+			}
+		}
+
+		for (u32 i = 0; i < sizeof(fsmh) / sizeof(fsmh[0]); i++)
+		{
+			for (u32 j = 0; j < 8; j++)
+			{
+				fsmh[i]._u16[j] = (i & (1 << j)) ? 0xffff : 0;
+			}
+		}
+
+		for (u32 i = 0; i < sizeof(fsmb) / sizeof(fsmb[0]); i++)
+		{
+			for (u32 j = 0; j < 16; j++)
+			{
+				fsmb[i]._u8[j] = (i & (1 << j)) ? 0xff : 0;
+			}
+		}
+
 		for (u32 i = 0; i < sizeof(sldq_pshufb) / sizeof(sldq_pshufb[0]); i++)
 		{
-			for (u32 j = 0; j < 16; j++) mmToU8Ptr(sldq_pshufb[i])[j] = (u8)(j - i);
+			for (u32 j = 0; j < 16; j++)
+			{
+				sldq_pshufb[i]._u8[j] = static_cast<u8>(j - i);
+			}
 		}
+
 		for (u32 i = 0; i < sizeof(srdq_pshufb) / sizeof(srdq_pshufb[0]); i++)
 		{
-			for (u32 j = 0; j < 16; j++) mmToU8Ptr(srdq_pshufb[i])[j] = (j + i > 15) ? 0xff : (u8)(j + i);
+			for (u32 j = 0; j < 16; j++)
+			{
+				srdq_pshufb[i]._u8[j] = (j + i > 15) ? 0xff : static_cast<u8>(j + i);
+			}
 		}
+
 		for (u32 i = 0; i < sizeof(rldq_pshufb) / sizeof(rldq_pshufb[0]); i++)
 		{
-			for (u32 j = 0; j < 16; j++) mmToU8Ptr(rldq_pshufb[i])[j] = (u8)(j - i) & 0xf;
+			for (u32 j = 0; j < 16; j++)
+			{
+				rldq_pshufb[i]._u8[j] = static_cast<u8>((j - i) & 0xf);
+			}
 		}
 	}
 };
 
-extern const g_imm_table_struct g_imm_table;
+extern const g_spu_imm_table_t g_spu_imm;
 
-//Floating point status and control register.  Unsure if this is one of the GPRs or SPRs
+enum FPSCR_EX
+{
+	//Single-precision exceptions
+	FPSCR_SOVF = 1 << 2,    //Overflow
+	FPSCR_SUNF = 1 << 1,    //Underflow
+	FPSCR_SDIFF = 1 << 0,   //Different (could be IEEE non-compliant)
+	//Double-precision exceptions
+	FPSCR_DOVF = 1 << 13,   //Overflow
+	FPSCR_DUNF = 1 << 12,   //Underflow
+	FPSCR_DINX = 1 << 11,   //Inexact
+	FPSCR_DINV = 1 << 10,   //Invalid operation
+	FPSCR_DNAN = 1 << 9,    //NaN
+	FPSCR_DDENORM = 1 << 8, //Denormal
+};
+
 //Is 128 bits, but bits 0-19, 24-28, 32-49, 56-60, 64-81, 88-92, 96-115, 120-124 are unused
-class FPSCR
+class SPU_FPSCR
 {
 public:
-	u64 low;
-	u64 hi;
+	u32 _u32[4];
 
-	FPSCR() {}
+	SPU_FPSCR() {}
 
 	std::string ToString() const
 	{
-		return "FPSCR writer not yet implemented"; //fmt::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
+		return fmt::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
 	}
 
 	void Reset()
 	{
 		memset(this, 0, sizeof(*this));
 	}
-	//slice -> 0 - 1 (4 slices total, only two have rounding)
-	//0 -> round even
-	//1 -> round towards zero (truncate)
-	//2 -> round towards positive inf
-	//3 -> round towards neg inf
+	//slice -> 0 - 1 (double-precision slice index)
+	//NOTE: slices follow u128 indexing, i.e. slice 0 is RIGHT end of register!
+	//roundTo -> FPSCR_RN_*
 	void setSliceRounding(u8 slice, u8 roundTo)
 	{
-		u64 mask = roundTo;
-		switch(slice)
-		{
-		case 0:
-			mask = mask << 20;
-			break;
-		case 1:
-			mask = mask << 22;
-			break;	
-		}
-
-		//rounding is located in the low end of the FPSCR
-		this->low = this->low & mask;
+		int shift = 8 + 2*slice;
+		//rounding is located in the left end of the FPSCR
+		this->_u32[3] = (this->_u32[3] & ~(3 << shift)) | (roundTo << shift);
 	}
 	//Slice 0 or 1
 	u8 checkSliceRounding(u8 slice) const
@@ -213,10 +446,10 @@ public:
 		switch(slice)
 		{
 		case 0:
-			return this->low >> 20 & 0x3;
+			return this->_u32[3] >> 8 & 0x3;
 		
 		case 1:
-			return this->low >> 22 & 0x3;
+			return this->_u32[3] >> 10 & 0x3;
 
 		default:
 			throw fmt::Format("Unexpected slice value in FPSCR::checkSliceRounding(): %d", slice);
@@ -224,296 +457,174 @@ public:
 		}
 	}
 
-	//Single Precision Exception Flags (all 3 slices)
+	//Single-precision exception flags (all 4 slices)
 	//slice -> slice number (0-3)
-	//exception: 1 -> Overflow 2 -> Underflow 4-> Diff (could be IE^3 non compliant)
-	void setSinglePrecisionExceptionFlags(u8 slice, u8 exception)
+	//exception: FPSCR_S* bitmask
+	void setSinglePrecisionExceptionFlags(u8 slice, u32 exceptions)
 	{
-		u64 mask = exception;
-		switch(slice)
-		{
-		case 0:
-			mask = mask << 29;
-			this->low = this->low & mask;
-			break;
-		case 1: 
-			mask = mask << 61;
-			this->low = this->low & mask;
-			break;
-		case 2:
-			mask = mask << 29;
-			this->hi = this->hi & mask;
-			break;
-		case 3:
-			mask = mask << 61;
-			this->hi = this->hi & mask;
-			break;
-		}
-		
-	}
-	
-};
-
-union SPU_SNRConfig_hdr
-{
-	u64 value;
-
-	SPU_SNRConfig_hdr() {}
-
-	std::string ToString() const
-	{
-		return fmt::Format("%01x", value);
+		_u32[slice] |= exceptions;
 	}
 
-	void Reset()
+	//Single-precision divide-by-zero flags (all 4 slices)
+	//slice -> slice number (0-3)
+	void setDivideByZeroFlag(u8 slice)
 	{
-		memset(this, 0, sizeof(*this));
+		_u32[0] |= 1 << (8 + slice);
+	}
+
+	//Double-precision exception flags
+	//slice -> slice number (0-1)
+	//exception: FPSCR_D* bitmask
+	void setDoublePrecisionExceptionFlags(u8 slice, u32 exceptions)
+	{
+		_u32[1+slice] |= exceptions;
+	}
+
+	// Write the FPSCR
+	void Write(const u128 & r)
+	{
+		_u32[3] = r._u32[3] & 0x00000F07;
+		_u32[2] = r._u32[2] & 0x00003F07;
+		_u32[1] = r._u32[1] & 0x00003F07;
+		_u32[0] = r._u32[0] & 0x00000F07;
+	}
+
+	// Read the FPSCR
+	void Read(u128 & r)
+	{
+		r._u32[3] = _u32[3];
+		r._u32[2] = _u32[2];
+		r._u32[1] = _u32[1];
+		r._u32[0] = _u32[0];
 	}
 };
 
-struct SpuGroupInfo;
-
-class SPUThread : public PPCThread
+class SPUThread : public CPUThread
 {
 public:
 	u128 GPR[128]; // General-Purpose Registers
-	//FPSCR FPSCR;
-	SPU_SNRConfig_hdr cfg; // Signal Notification Registers Configuration (OR-mode enabled: 0x1 for SNR1, 0x2 for SNR2)
+	SPU_FPSCR FPSCR;
 
-	u64 R_ADDR; // reservation address
-	u64 R_DATA[16]; // lock line data (BE)
+	std::unordered_map<u32, std::function<bool(SPUThread& SPU)>> m_addr_to_hle_function_map;
 
-	std::shared_ptr<EventPort> SPUPs[64]; // SPU Thread Event Ports
-	EventManager SPUQs; // SPU Queue Mapping
-	std::shared_ptr<SpuGroupInfo> group; // associated SPU Thread Group (null for raw spu)
+	spu_mfc_arg_t ch_mfc_args;
 
-	u64 m_dec_start; // timestamp of writing decrementer value
-	u32 m_dec_value; // written decrementer value
+	std::vector<std::pair<u32, spu_mfc_arg_t>> mfc_queue; // Only used for stalled list transfers
 
-	u32 m_event_mask;
-	u32 m_events;
+	u32 ch_tag_mask;
+	spu_channel_t ch_tag_stat;
+	spu_channel_t ch_stall_stat;
+	spu_channel_t ch_atomic_stat;
 
-	struct IntrTag
+	spu_channel_4_t ch_in_mbox;
+
+	spu_channel_t ch_out_mbox;
+	spu_channel_t ch_out_intr_mbox;
+
+	u64 snr_config; // SPU SNR Config Register
+
+	spu_channel_t ch_snr1; // SPU Signal Notification Register 1
+	spu_channel_t ch_snr2; // SPU Signal Notification Register 2
+
+	u32 ch_event_mask;
+	atomic<u32> ch_event_stat;
+
+	u64 ch_dec_start_timestamp; // timestamp of writing decrementer value
+	u32 ch_dec_value; // written decrementer value
+
+	atomic<u32> run_ctrl; // SPU Run Control register (only provided to get latest data written)
+	atomic<u32> status; // SPU Status register
+	atomic<u32> npc; // SPU Next Program Counter register
+
+	spu_interrupt_tag_t int0; // SPU Class 0 Interrupt Management
+	spu_interrupt_tag_t int2; // SPU Class 2 Interrupt Management
+
+	std::weak_ptr<spu_group_t> tg; // SPU Thread Group
+
+	std::array<std::pair<u32, std::weak_ptr<lv2_event_queue_t>>, 32> spuq; // Event Queue Keys for SPU Thread
+	std::weak_ptr<lv2_event_queue_t> spup[64]; // SPU Ports
+
+	void write_snr(bool number, u32 value)
 	{
-		u32 enabled; // 1 == true
-		u32 thread; // established interrupt PPU thread
-		u64 mask;
-		u64 stat;
-
-		IntrTag()
-			: enabled(0)
-			, thread(0)
-			, mask(0)
-			, stat(0)
+		if (!number)
 		{
-		}
-	} m_intrtag[3];
-
-	// limited lock-free queue, most functions are barrier-free
-	template<size_t max_count>
-	class Channel
-	{
-		static_assert(max_count >= 1, "Invalid channel count");
-
-		struct ChannelData
-		{
-			u32 value;
-			u32 is_set;
-		};
-
-		atomic_t<ChannelData> m_data[max_count];
-		size_t m_push;
-		size_t m_pop;
-
-	public:
-		__noinline Channel()
-		{
-			for (size_t i = 0; i < max_count; i++)
+			if (snr_config & 1)
 			{
-				m_data[i].write_relaxed({});
-			}
-			m_push = 0;
-			m_pop = 0;
-		}
-
-		__forceinline void PopUncond(u32& res)
-		{
-			res = m_data[m_pop].read_relaxed().value;
-			m_data[m_pop].write_relaxed({});
-			m_pop = (m_pop + 1) % max_count;
-		}
-
-		__forceinline bool Pop(u32& res)
-		{
-			const auto data = m_data[m_pop].read_relaxed();
-			if (data.is_set)
-			{
-				res = data.value;
-				m_data[m_pop].write_relaxed({});
-				m_pop = (m_pop + 1) % max_count;
-				return true;
+				ch_snr1.push_bit_or(value);
 			}
 			else
 			{
-				return false;
+				ch_snr1.push_uncond(value);
 			}
 		}
-
-		__forceinline bool Pop_XCHG(u32& res) // not barrier-free, not tested
+		else
 		{
-			const auto data = m_data[m_pop].exchange({});
-			if (data.is_set)
+			if (snr_config & 2)
 			{
-				res = data.value;
-				m_pop = (m_pop + 1) % max_count;
-				return true;
+				ch_snr2.push_bit_or(value);
 			}
 			else
 			{
-				return false;
+				ch_snr2.push_uncond(value);
 			}
 		}
+	}
 
-		__forceinline void PushUncond_OR(const u32 value) // not barrier-free, not tested
-		{
-			m_data[m_push]._or({ value, 1 });
-			m_push = (m_push + 1) % max_count;
-		}
+	void do_dma_transfer(u32 cmd, spu_mfc_arg_t args);
+	void do_dma_list_cmd(u32 cmd, spu_mfc_arg_t args);
+	void process_mfc_cmd(u32 cmd);
 
-		__forceinline void PushUncond(const u32 value)
-		{
-			m_data[m_push].write_relaxed({ value, 1 });
-			m_push = (m_push + 1) % max_count;
-		}
+	u32 get_ch_count(u32 ch);
+	u32 get_ch_value(u32 ch);
+	void set_ch_value(u32 ch, u32 value);
 
-		__forceinline bool Push(const u32 value)
+	void stop_and_signal(u32 code);
+	void halt();
+
+	u8 read8(u32 lsa) const { return vm::read8(lsa + offset); }
+	u16 read16(u32 lsa) const { return vm::read16(lsa + offset); }
+	u32 read32(u32 lsa) const { return vm::read32(lsa + offset); }
+	u64 read64(u32 lsa) const { return vm::read64(lsa + offset); }
+	u128 read128(u32 lsa) const { return vm::read128(lsa + offset); }
+
+	void write8(u32 lsa, u8 data) const { vm::write8(lsa + offset, data); }
+	void write16(u32 lsa, u16 data) const { vm::write16(lsa + offset, data); }
+	void write32(u32 lsa, u32 data) const { vm::write32(lsa + offset, data); }
+	void write64(u32 lsa, u64 data) const { vm::write64(lsa + offset, data); }
+	void write128(u32 lsa, u128 data) const { vm::write128(lsa + offset, data); }
+
+	void write16(u32 lsa, be_t<u16> data) const { vm::write16(lsa + offset, data); }
+	void write32(u32 lsa, be_t<u32> data) const { vm::write32(lsa + offset, data); }
+	void write64(u32 lsa, be_t<u64> data) const { vm::write64(lsa + offset, data); }
+	void write128(u32 lsa, be_t<u128> data) const { vm::write128(lsa + offset, data); }
+
+	void RegisterHleFunction(u32 addr, std::function<bool(SPUThread & SPU)> function)
+	{
+		m_addr_to_hle_function_map[addr] = function;
+		write32(addr, 0x00000003); // STOP 3
+	}
+
+	void UnregisterHleFunction(u32 addr)
+	{
+		m_addr_to_hle_function_map.erase(addr);
+	}
+
+	void UnregisterHleFunctions(u32 start_addr, u32 end_addr)
+	{
+		for (auto iter = m_addr_to_hle_function_map.begin(); iter != m_addr_to_hle_function_map.end();)
 		{
-			if (m_data[m_push].read_relaxed().is_set)
+			if (iter->first >= start_addr && iter->first <= end_addr)
 			{
-				return false;
+				m_addr_to_hle_function_map.erase(iter++);
 			}
 			else
 			{
-				PushUncond(value);
-				return true;
+				iter++;
 			}
 		}
-
-		__forceinline u32 GetCount() const
-		{
-			u32 res = 0;
-			for (size_t i = 0; i < max_count; i++)
-			{
-				res += m_data[i].read_relaxed().is_set ? 1 : 0;
-			}
-			return res;
-		}
-
-		__forceinline u32 GetFreeCount() const
-		{
-			u32 res = 0;
-			for (size_t i = 0; i < max_count; i++)
-			{
-				res += m_data[i].read_relaxed().is_set ? 0 : 1;
-			}
-			return res;
-		}
-
-		__forceinline void SetValue(const u32 value)
-		{
-			m_data[m_push].direct_op([value](ChannelData& v)
-			{
-				v.value = value;
-			});
-		}
-
-		__forceinline u32 GetValue() const
-		{
-			return m_data[m_pop].read_relaxed().value;
-		}
-	};
-
-	struct MFCReg
-	{
-		Channel<1> LSA;
-		Channel<1> EAH;
-		Channel<1> EAL;
-		Channel<1> Size_Tag;
-		Channel<1> CMDStatus;
-		Channel<1> QueryType; // only for prxy
-		Channel<1> QueryMask;
-		Channel<1> TagStatus;
-		Channel<1> AtomicStat;
-	} MFC1, MFC2;
-
-	struct StalledList
-	{
-		u32 lsa;
-		u64 ea;
-		u16 tag;
-		u16 size;
-		u32 cmd;
-		MFCReg* MFCArgs;
-
-		StalledList()
-			: MFCArgs(nullptr)
-		{
-		}
-	} StallList[32];
-	Channel<1> StallStat;
-
-	struct
-	{
-		Channel<1> Out_MBox;
-		Channel<1> Out_IntrMBox;
-		Channel<4> In_MBox;
-		Channel<1> Status;
-		Channel<1> NPC;
-		Channel<1> SNR[2];
-	} SPU;
-
-	void WriteSNR(bool number, u32 value);
-
-	u32 LSA;
-
-	union
-	{
-		u64 EA;
-		struct { u32 EAH, EAL; };
-	};
-
-	u32 ls_offset;
-
-	void ProcessCmd(u32 cmd, u32 tag, u32 lsa, u64 ea, u32 size);
-
-	void ListCmd(u32 lsa, u64 ea, u16 tag, u16 size, u32 cmd, MFCReg& MFCArgs);
-
-	void EnqMfcCmd(MFCReg& MFCArgs);
-
-	bool CheckEvents();
-
-	u32 GetChannelCount(u32 ch);
-
-	void WriteChannel(u32 ch, const u128& r);
-
-	void ReadChannel(u128& r, u32 ch);
-
-	void StopAndSignal(u32 code);
-
-	u8   ReadLS8  (const u32 lsa) const { return vm::read8  (lsa + m_offset); }
-	u16  ReadLS16 (const u32 lsa) const { return vm::read16 (lsa + m_offset); }
-	u32  ReadLS32 (const u32 lsa) const { return vm::read32 (lsa + m_offset); }
-	u64  ReadLS64 (const u32 lsa) const { return vm::read64 (lsa + m_offset); }
-	u128 ReadLS128(const u32 lsa) const { return vm::read128(lsa + m_offset); }
-
-	void WriteLS8  (const u32 lsa, const u8&   data) const { vm::write8  (lsa + m_offset, data); }
-	void WriteLS16 (const u32 lsa, const u16&  data) const { vm::write16 (lsa + m_offset, data); }
-	void WriteLS32 (const u32 lsa, const u32&  data) const { vm::write32 (lsa + m_offset, data); }
-	void WriteLS64 (const u32 lsa, const u64&  data) const { vm::write64 (lsa + m_offset, data); }
-	void WriteLS128(const u32 lsa, const u128& data) const { vm::write128(lsa + m_offset, data); }
+	}
 
 	std::function<void(SPUThread& SPU)> m_custom_task;
-	std::function<u64(SPUThread& SPU)> m_code3_func;
 
 public:
 	SPUThread(CPUThreadType type = CPU_THREAD_SPU);
@@ -571,9 +682,12 @@ public:
 
 public:
 	virtual void InitRegs();
+	virtual void InitStack();
+	virtual void CloseStack();
 	virtual void Task();
 	void FastCall(u32 ls_addr);
 	void FastStop();
+	void FastRun();
 
 protected:
 	virtual void DoReset();
@@ -610,7 +724,7 @@ public:
 		for (auto &arg : values)
 		{
 			u32 arg_size = align(u32(arg.size() + 1), stack_align);
-			u32 arg_addr = Memory.MainMem.AllocAlign(arg_size, stack_align);
+			u32 arg_addr = (u32)Memory.MainMem.AllocAlign(arg_size, stack_align);
 
 			std::strcpy(vm::get_ptr<char>(arg_addr), arg.c_str());
 
@@ -622,11 +736,13 @@ public:
 
 	cpu_thread& run() override
 	{
-		thread->Run();
+		auto& spu = static_cast<SPUThread&>(*thread);
 
-		static_cast<SPUThread*>(thread)->GPR[3].from64(argc);
-		static_cast<SPUThread*>(thread)->GPR[4].from64(argv.addr());
-		static_cast<SPUThread*>(thread)->GPR[5].from64(envp.addr());
+		spu.Run();
+
+		spu.GPR[3].from64(argc);
+		spu.GPR[4].from64(argv.addr());
+		spu.GPR[5].from64(envp.addr());
 
 		return *this;
 	}

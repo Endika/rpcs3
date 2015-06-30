@@ -5,23 +5,59 @@ class CPUThread;
 
 namespace vm
 {
+	extern void* g_base_addr; // base address of ps3/psv virtual memory for common access
+	extern void* g_priv_addr; // base address of ps3/psv virtual memory for privileged access
+
 	enum memory_location : uint
 	{
 		main,
+		user_space,
 		stack,
 
-		//remove me
-		sprx,
-
-		user_space,
-
 		memory_location_count
+	};
+
+	enum page_info_t : u8
+	{
+		page_readable           = (1 << 0),
+		page_writable           = (1 << 1),
+		page_executable         = (1 << 2),
+
+		page_fault_notification = (1 << 3),
+		page_no_reservations    = (1 << 4),
+
+		page_allocated          = (1 << 7),
 	};
 
 	static void set_stack_size(u32 size) {}
 	static void initialize_stack() {}
 
-	extern void* const g_base_addr;
+	// break the reservation, return true if it was successfully broken
+	bool reservation_break(u32 addr);
+	// read memory and reserve it for further atomic update, return true if the previous reservation was broken
+	bool reservation_acquire(void* data, u32 addr, u32 size, const std::function<void()>& callback = nullptr);
+	// same as reservation_acquire but does not have the callback argument
+	// used by the PPU LLVM JIT since creating a std::function object in LLVM IR is too complicated
+	bool reservation_acquire_no_cb(void* data, u32 addr, u32 size);
+	// attempt to atomically update reserved memory
+	bool reservation_update(u32 addr, const void* data, u32 size);
+	// for internal use
+	bool reservation_query(u32 addr, u32 size, bool is_writing, std::function<bool()> callback);
+	// for internal use
+	void reservation_free();
+	// perform complete operation
+	void reservation_op(u32 addr, u32 size, std::function<void()> proc);
+
+	// for internal use
+	void page_map(u32 addr, u32 size, u8 flags);
+	// for internal use
+	bool page_protect(u32 addr, u32 size, u8 flags_test = 0, u8 flags_set = 0, u8 flags_clear = 0);
+	// for internal use
+	void page_unmap(u32 addr, u32 size);
+
+	// unsafe address check
+	bool check_addr(u32 addr, u32 size = 1);
+
 	bool map(u32 addr, u32 size, u32 flags);
 	bool unmap(u32 addr, u32 size = 0, u32 flags = 0);
 	u32 alloc(u32 size, memory_location location = user_space);
@@ -29,9 +65,9 @@ namespace vm
 	void dealloc(u32 addr, memory_location location = user_space);
 	
 	template<typename T = void>
-	T* const get_ptr(u32 addr)
+	T* get_ptr(u32 addr)
 	{
-		return (T*)((u8*)g_base_addr + addr);
+		return reinterpret_cast<T*>(static_cast<u8*>(g_base_addr) + addr);
 	}
 
 	template<typename T>
@@ -40,48 +76,114 @@ namespace vm
 		return *get_ptr<T>(addr);
 	}
 
+	template<typename T = void>
+	T* priv_ptr(u32 addr)
+	{
+		return reinterpret_cast<T*>(static_cast<u8*>(g_priv_addr) + addr);
+	}
+
+	template<typename T>
+	T& priv_ref(u32 addr)
+	{
+		return *priv_ptr<T>(addr);
+	}
+
+	u32 get_addr(const void* real_pointer);
+
+	never_inline void error(const u64 addr, const char* func);
+
+	template<typename T>
+	struct cast_ptr
+	{
+		static_assert(std::is_same<T, u32>::value, "Unsupported vm::cast() type");
+
+		force_inline static u32 cast(const T& addr, const char* func)
+		{
+			return 0;
+		}
+	};
+
+	template<>
+	struct cast_ptr<u32>
+	{
+		force_inline static u32 cast(const u32 addr, const char* func)
+		{
+			return addr;
+		}
+	};
+
+	template<>
+	struct cast_ptr<u64>
+	{
+		force_inline static u32 cast(const u64 addr, const char* func)
+		{
+			const u32 res = static_cast<u32>(addr);
+			if (res != addr)
+			{
+				vm::error(addr, func);
+			}
+
+			return res;
+		}
+	};
+
+	template<typename T>
+	struct cast_ptr<be_t<T>>
+	{
+		force_inline static u32 cast(const be_t<T>& addr, const char* func)
+		{
+			return cast_ptr<T>::cast(addr.value(), func);
+		}
+	};
+
+	template<typename T>
+	force_inline static u32 cast(const T& addr, const char* func = "vm::cast")
+	{
+		return cast_ptr<T>::cast(addr, func);
+	}
+
 	namespace ps3
 	{
 		void init();
 
 		static u8 read8(u32 addr)
 		{
-			return *((u8*)g_base_addr + addr);
+			return get_ref<u8>(addr);
 		}
 
 		static void write8(u32 addr, u8 value)
 		{
-			*((u8*)g_base_addr + addr) = value;
+			get_ref<u8>(addr) = value;
 		}
 
 		static u16 read16(u32 addr)
 		{
-			return re16(*(u16*)((u8*)g_base_addr + addr));
+			return get_ref<be_t<u16>>(addr);
 		}
 
 		static void write16(u32 addr, be_t<u16> value)
 		{
-			*(be_t<u16>*)((u8*)g_base_addr + addr) = value;
+			get_ref<be_t<u16>>(addr) = value;
 		}
 
 		static u32 read32(u32 addr)
 		{
-			return re32(*(u32*)((u8*)g_base_addr + addr));;
+			return get_ref<be_t<u32>>(addr);
 		}
 
 		static void write32(u32 addr, be_t<u32> value)
 		{
-			*(be_t<u32>*)((u8*)g_base_addr + addr) = value;
+			get_ref<be_t<u32>>(addr) = value;
 		}
 
 		static u64 read64(u32 addr)
 		{
-			return re64(*(u64*)((u8*)g_base_addr + addr));
+			return get_ref<be_t<u64>>(addr);
 		}
 
 		static void write64(u32 addr, be_t<u64> value)
 		{
-			*(be_t<u64>*)((u8*)g_base_addr + addr) = value;
+			get_ref<be_t<u64>>(addr) = value;
 		}
 
 		static void write16(u32 addr, u16 value)
@@ -101,12 +203,12 @@ namespace vm
 
 		static u128 read128(u32 addr)
 		{
-			return re128(*(u128*)((u8*)g_base_addr + addr));
+			return get_ref<be_t<u128>>(addr);
 		}
 
 		static void write128(u32 addr, u128 value)
 		{
-			*(u128*)((u8*)g_base_addr + addr) = re128(value);
+			get_ref<be_t<u128>>(addr) = value;
 		}
 	}
 	
@@ -116,52 +218,52 @@ namespace vm
 
 		static u8 read8(u32 addr)
 		{
-			return *((u8*)g_base_addr + addr);
+			return get_ref<u8>(addr);
 		}
 
 		static void write8(u32 addr, u8 value)
 		{
-			*((u8*)g_base_addr + addr) = value;
+			get_ref<u8>(addr) = value;
 		}
 
 		static u16 read16(u32 addr)
 		{
-			return *(u16*)((u8*)g_base_addr + addr);
+			return get_ref<u16>(addr);
 		}
 
 		static void write16(u32 addr, u16 value)
 		{
-			*(u16*)((u8*)g_base_addr + addr) = value;
+			get_ref<u16>(addr) = value;
 		}
 
 		static u32 read32(u32 addr)
 		{
-			return *(u32*)((u8*)g_base_addr + addr);
+			return get_ref<u32>(addr);
 		}
 
 		static void write32(u32 addr, u32 value)
 		{
-			*(u32*)((u8*)g_base_addr + addr) = value;
+			get_ref<u32>(addr) = value;
 		}
 
 		static u64 read64(u32 addr)
 		{
-			return *(u64*)((u8*)g_base_addr + addr);
+			return get_ref<u64>(addr);
 		}
 
 		static void write64(u32 addr, u64 value)
 		{
-			*(u64*)((u8*)g_base_addr + addr) = value;
+			get_ref<u64>(addr) = value;
 		}
 
 		static u128 read128(u32 addr)
 		{
-			return *(u128*)((u8*)g_base_addr + addr);
+			return get_ref<u128>(addr);
 		}
 
 		static void write128(u32 addr, u128 value)
 		{
-			*(u128*)((u8*)g_base_addr + addr) = value;
+			get_ref<u128>(addr) = value;
 		}
 	}
 
@@ -196,9 +298,15 @@ namespace vm
 		u32 alloc_offset;
 
 		template<typename T = char>
-		ptr<T> alloc(u32 count) const
+		ptr<T> alloc(u32 count = 1) const
 		{
 			return ptr<T>::make(allocator(count * sizeof(T)));
+		}
+
+		template<typename T = char>
+		ptr<T> fixed_alloc(u32 addr, u32 count = 1) const
+		{
+			return ptr<T>::make(fixed_allocator(addr, count * sizeof(T)));
 		}
 	};
 

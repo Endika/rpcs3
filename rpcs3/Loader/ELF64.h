@@ -1,9 +1,7 @@
 #pragma once
 #include "Loader.h"
-#include <unordered_map>
 
 struct vfsStream;
-class rFile;
 
 namespace loader
 {
@@ -34,7 +32,7 @@ namespace loader
 				be_t<u16> e_shnum;
 				be_t<u16> e_shstrndx;
 
-				bool check() const { return e_magic.ToBE() == se32(0x7F454C46); }
+				bool check() const { return e_magic.data() == se32(0x7F454C46); }
 			} m_ehdr;
 
 			struct phdr
@@ -42,8 +40,8 @@ namespace loader
 				be_t<u32> p_type;
 				be_t<u32> p_flags;
 				be_t<u64> p_offset;
-				bptr<void, 1, u64> p_vaddr;
-				bptr<void, 1, u64> p_paddr;
+				bptr<void, u64> p_vaddr;
+				bptr<void, u64> p_paddr;
 				be_t<u64> p_filesz;
 				be_t<u64> p_memsz;
 				be_t<u64> p_align;
@@ -54,7 +52,7 @@ namespace loader
 				be_t<u32> sh_name;
 				be_t<u32> sh_type;
 				be_t<u64> sh_flags;
-				bptr<void, 1, u64> sh_addr;
+				bptr<void, u64> sh_addr;
 				be_t<u64> sh_offset;
 				be_t<u64> sh_size;
 				be_t<u32> sh_link;
@@ -156,6 +154,7 @@ namespace loader
 
 			error_code init(vfsStream& stream) override;
 			error_code load() override;
+			error_code alloc_memory(u64 offset);
 			error_code load_data(u64 offset);
 			error_code load_sprx(sprx_info& info);
 			bool is_sprx() const { return m_ehdr.e_type == 0xffa4; }

@@ -1,11 +1,5 @@
 #pragma once
 
-#include <utility>
-#include "Utilities/simpleini/SimpleIni.h"
-
-//TODO: make thread safe/remove static singleton
-CSimpleIniCaseA *getIniFile();
-
 //TODO: move this to the gui module
 struct WindowInfo
 {
@@ -26,7 +20,7 @@ public:
 	virtual ~Ini();
 
 protected:
-	CSimpleIniCaseA *m_Config;
+	void* m_config;
 
 	Ini();
 
@@ -163,6 +157,10 @@ public:
 	IniEntry<bool> DBGAutoPauseSystemCall;
 	IniEntry<bool> DBGAutoPauseFunctionCall;
 
+	//Customed EmulationDir
+	IniEntry<std::string> SysEmulationDirPath;
+	IniEntry<bool> SysEmulationDirPathEnable;
+
 	// Language
 	IniEntry<u8> SysLanguage;
 
@@ -240,6 +238,10 @@ public:
 		DBGAutoPauseFunctionCall.Init("DBG_AutoPauseFunctionCall", path);
 		DBGAutoPauseSystemCall.Init("DBG_AutoPauseSystemCall", path);
 
+		// Customed EmulationDir
+		SysEmulationDirPath.Init("System_EmulationDir", path);
+		SysEmulationDirPathEnable.Init("System_EmulationDirEnable", path);
+
 		// Language
 		SysLanguage.Init("Sytem_SysLanguage", path);
 	}
@@ -247,8 +249,8 @@ public:
 	void Load()
 	{
 		// Core
-		CPUDecoderMode.Load(1);
-		SPUDecoderMode.Load(1);
+		CPUDecoderMode.Load(0);
+		SPUDecoderMode.Load(0);
 
 		// Graphics
 		GSRenderMode.Load(1);
@@ -268,7 +270,7 @@ public:
 		AudioConvertToU16.Load(false);
 
 		// Camera
-		Camera.Load(0);
+		Camera.Load(1);
 		CameraType.Load(2);
 
 		// Input/Ouput
@@ -316,6 +318,9 @@ public:
 		// Language
 		SysLanguage.Load(1);
 
+		// Customed EmulationDir
+		SysEmulationDirPath.Load("");
+		SysEmulationDirPathEnable.Load(false);
 	}
 
 	void Save()
@@ -389,6 +394,10 @@ public:
 
 		// Language
 		SysLanguage.Save();
+
+		// Customed EmulationDir
+		SysEmulationDirPath.Save();
+		SysEmulationDirPathEnable.Save();
 	}
 };
 

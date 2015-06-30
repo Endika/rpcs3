@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
+#include "Emu/IdManager.h"
 #include "Emu/SysCalls/SysCalls.h"
 
 #include "sys_memory.h"
@@ -11,7 +12,7 @@ std::shared_ptr<MemoryContainerInfo> current_ct;
 
 s32 sys_vm_memory_map(u32 vsize, u32 psize, u32 cid, u64 flag, u64 policy, u32 addr)
 {
-	sys_vm.Error("sys_vm_memory_map(vsize=0x%x, psize=0x%x, cidr=0x%x, flags=0x%llx, policy=0x%llx, addr_addr=0x%x)", 
+	sys_vm.Error("sys_vm_memory_map(vsize=0x%x, psize=0x%x, cid=0x%x, flags=0x%llx, policy=0x%llx, addr_addr=0x%x)", 
 		vsize, psize, cid, flag, policy, addr);
 
 	// Check virtual size.
@@ -27,7 +28,7 @@ s32 sys_vm_memory_map(u32 vsize, u32 psize, u32 cid, u64 flag, u64 policy, u32 a
 	}
 
 	// Use fixed address (TODO: search and use some free address instead)
-	u32 new_addr = Memory.IsGoodAddr(0x60000000) ? 0x70000000 : 0x60000000;
+	u32 new_addr = vm::check_addr(0x60000000) ? 0x70000000 : 0x60000000;
 
 	// If container ID is SYS_MEMORY_CONTAINER_ID_INVALID, allocate directly.
 	if(cid == SYS_MEMORY_CONTAINER_ID_INVALID)
@@ -38,14 +39,21 @@ s32 sys_vm_memory_map(u32 vsize, u32 psize, u32 cid, u64 flag, u64 policy, u32 a
 	else
 	{
 		// Check memory container.
-		std::shared_ptr<MemoryContainerInfo> ct;
-		if(!sys_vm.CheckId(cid, ct)) return CELL_ESRCH;
+		const auto ct = Emu.GetIdManager().get<MemoryContainerInfo>(cid);
+
+		if (!ct)
+		{
+			return CELL_ESRCH;
+		}
 
 		current_ct = ct;
 	}
 
 	// Allocate actual memory using virtual size (physical size is ignored)
-	assert(Memory.Map(new_addr, vsize));
+	if (!Memory.Map(new_addr, vsize))
+	{
+		return CELL_ENOMEM;
+	}
 
 	// Write a pointer for the allocated memory.
 	vm::write32(addr, new_addr);

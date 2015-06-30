@@ -22,6 +22,7 @@
 #include "Gui/RSXDebugger.h"
 #include "Gui/MemoryStringSearcher.h"
 #include "Gui/LLEModulesManager.h"
+#include "Gui/CgDisasm.h"
 
 #include <wx/dynlib.h>
 
@@ -53,8 +54,9 @@ enum IDs
 	id_tools_memory_viewer,
 	id_tools_rsx_debugger,
 	id_tools_string_search,
+	id_tools_cg_disasm,
 	id_help_about,
-	id_update_dbg,
+	id_update_dbg
 };
 
 wxString GetPaneName()
@@ -70,11 +72,7 @@ MainFrame::MainFrame()
 	, m_sys_menu_opened(false)
 {
 
-#ifdef _DEBUG
-	SetLabel(wxString::Format(_PRGNAME_ " git-" RPCS3_GIT_VERSION));
-#else
-	SetLabel(wxString::Format(_PRGNAME_ " " _PRGVER_));
-#endif
+	SetLabel(wxString::Format(_PRGNAME_ " " RPCS3_GIT_VERSION));
 
 	wxMenuBar* menubar = new wxMenuBar();
 
@@ -115,6 +113,7 @@ MainFrame::MainFrame()
 	menu_tools->Append(id_tools_memory_viewer, "&Memory Viewer")->Enable(false);
 	menu_tools->Append(id_tools_rsx_debugger, "&RSX Debugger")->Enable(false);
 	menu_tools->Append(id_tools_string_search, "&String Search")->Enable(false);
+	menu_tools->Append(id_tools_cg_disasm, "&Cg Disasm")->Enable();
 
 	wxMenu* menu_help = new wxMenu();
 	menubar->Append(menu_help, "&Help");
@@ -123,9 +122,9 @@ MainFrame::MainFrame()
 	SetMenuBar(menubar);
 
 	// Panels
+	m_log_frame = new LogFrame(this);
 	m_game_viewer = new GameViewer(this);
 	m_debugger_frame = new DebuggerPanel(this);
-	m_log_frame = new LogFrame(this);
 
 	AddPane(m_game_viewer, "Game List", wxAUI_DOCK_CENTRE);
 	AddPane(m_log_frame, "Log", wxAUI_DOCK_BOTTOM);
@@ -155,6 +154,7 @@ MainFrame::MainFrame()
 	Bind(wxEVT_MENU, &MainFrame::OpenMemoryViewer, this, id_tools_memory_viewer);
 	Bind(wxEVT_MENU, &MainFrame::OpenRSXDebugger, this, id_tools_rsx_debugger);
 	Bind(wxEVT_MENU, &MainFrame::OpenStringSearch, this, id_tools_string_search);
+	Bind(wxEVT_MENU, &MainFrame::OpenCgDisasm, this, id_tools_cg_disasm);
 
 	Bind(wxEVT_MENU, &MainFrame::AboutDialogHandler, this, id_help_about);
 
@@ -221,7 +221,7 @@ void MainFrame::BootGame(wxCommandEvent& WXUNUSED(event))
 	}
 	else
 	{
-		LOG_ERROR(HLE, "PS3 executable not found in selected folder (%s)", ctrl.GetPath().wx_str());
+		LOG_ERROR(HLE, "PS3 executable not found in selected folder (%s)", fmt::ToUTF8(ctrl.GetPath())); // passing std::string (test)
 	}
 }
 
@@ -235,8 +235,7 @@ void MainFrame::InstallPkg(wxCommandEvent& WXUNUSED(event))
 		stopped = true;
 	}
 
-	wxFileDialog ctrl (this, L"Select PKG", wxEmptyString, wxEmptyString, "PKG files (*.pkg)|*.pkg|All files (*.*)|*.*",
-		wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+	wxFileDialog ctrl(this, L"Select PKG", wxEmptyString, wxEmptyString, "PKG files (*.pkg)|*.pkg|All files (*.*)|*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 	
 	if(ctrl.ShowModal() == wxID_CANCEL)
 	{
@@ -247,14 +246,11 @@ void MainFrame::InstallPkg(wxCommandEvent& WXUNUSED(event))
 	Emu.Stop();
 	
 	// Open and install PKG file
-	std::string filePath = ctrl.GetPath().ToStdString();
-	rFile pkg_f(filePath, rFile::read); // TODO: Use VFS to install PKG files
+	fs::file pkg_f(ctrl.GetPath().ToStdString(), o_read);
 
-	if (pkg_f.IsOpened())
+	if (pkg_f)
 	{
-		PKGLoader pkg(pkg_f);
-		pkg.Install("/dev_hdd0/game/");
-		pkg.Close();
+		PKGLoader::Install(pkg_f, "/dev_hdd0/game/");
 
 		// Refresh game list
 		m_game_viewer->Refresh();
@@ -436,10 +432,16 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 	wxCheckBox* chbox_dbg_ap_systemcall   = new wxCheckBox(p_hle, wxID_ANY, "Auto Pause at System Call");
 	wxCheckBox* chbox_dbg_ap_functioncall = new wxCheckBox(p_hle, wxID_ANY, "Auto Pause at Function Call");
 
+	//Custom EmulationDir
+	wxCheckBox* chbox_emulationdir_enable = new wxCheckBox(p_system, wxID_ANY, "Use Path Below as EmulationDir ? (Need Restart)");
+	wxTextCtrl* txt_emulationdir_path     = new wxTextCtrl(p_system, wxID_ANY, Emu.GetEmulatorPath());
+
 	cbox_cpu_decoder->Append("PPU Interpreter");
+	cbox_cpu_decoder->Append("PPU Interpreter 2");
 	cbox_cpu_decoder->Append("PPU JIT (LLVM)");
 
 	cbox_spu_decoder->Append("SPU Interpreter");
+	cbox_spu_decoder->Append("SPU Interpreter 2");
 	cbox_spu_decoder->Append("SPU JIT (ASMJIT)");
 
 	cbox_gs_render->Append("Null");
@@ -448,7 +450,7 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 
 	for(int i = 1; i < WXSIZEOF(ResolutionTable); ++i)
 	{
-		cbox_gs_resolution->Append(wxString::Format("%dx%d", ResolutionTable[i].width.ToLE(), ResolutionTable[i].height.ToLE()));
+		cbox_gs_resolution->Append(wxString::Format("%dx%d", ResolutionTable[i].width.value(), ResolutionTable[i].height.value()));
 	}
 
 	cbox_gs_aspect->Append("4:3");
@@ -474,8 +476,12 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 
 	cbox_audio_out->Append("Null");
 	cbox_audio_out->Append("OpenAL");
+#if defined (_WIN32)
+	cbox_audio_out->Append("XAudio2");
+#endif
 
 	cbox_camera->Append("Null");
+	cbox_camera->Append("Connected");
 
 	cbox_camera_type->Append("Unknown");
 	cbox_camera_type->Append("EyeToy");
@@ -483,8 +489,8 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 	cbox_camera_type->Append("USB Video Class 1.1");
 
 	cbox_hle_loglvl->Append("All");
-	cbox_hle_loglvl->Append("Success");
 	cbox_hle_loglvl->Append("Warnings");
+	cbox_hle_loglvl->Append("Success");
 	cbox_hle_loglvl->Append("Errors");
 	cbox_hle_loglvl->Append("Nothing");
 
@@ -527,8 +533,12 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 	chbox_dbg_ap_systemcall  ->SetValue(Ini.DBGAutoPauseSystemCall.GetValue());
 	chbox_dbg_ap_functioncall->SetValue(Ini.DBGAutoPauseFunctionCall.GetValue());
 
-	cbox_cpu_decoder     ->SetSelection(Ini.CPUDecoderMode.GetValue() ? Ini.CPUDecoderMode.GetValue() - 1 : 0);
-	cbox_spu_decoder     ->SetSelection(Ini.SPUDecoderMode.GetValue() ? Ini.SPUDecoderMode.GetValue() - 1 : 0);
+	//Custom EmulationDir
+	chbox_emulationdir_enable->SetValue(Ini.SysEmulationDirPathEnable.GetValue());
+	txt_emulationdir_path    ->SetValue(Ini.SysEmulationDirPath.GetValue());
+
+	cbox_cpu_decoder     ->SetSelection(Ini.CPUDecoderMode.GetValue() ? Ini.CPUDecoderMode.GetValue() : 0);
+	cbox_spu_decoder     ->SetSelection(Ini.SPUDecoderMode.GetValue() ? Ini.SPUDecoderMode.GetValue() : 0);
 	cbox_gs_render       ->SetSelection(Ini.GSRenderMode.GetValue());
 	cbox_gs_resolution   ->SetSelection(ResolutionIdToNum(Ini.GSResolution.GetValue()) - 1);
 	cbox_gs_aspect       ->SetSelection(Ini.GSAspectRatio.GetValue() - 1);
@@ -542,13 +552,6 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 	cbox_hle_loglvl      ->SetSelection(Ini.HLELogLvl.GetValue());
 	cbox_sys_lang        ->SetSelection(Ini.SysLanguage.GetValue());
 	
-	// Enable/Disable parameters
-	chbox_audio_dump->Enable(Emu.IsStopped());
-	chbox_audio_conv->Enable(Emu.IsStopped());
-	chbox_hle_logging->Enable(Emu.IsStopped());
-	chbox_rsx_logging->Enable(Emu.IsStopped());
-	chbox_hle_hook_stfunc->Enable(Emu.IsStopped());
-
 	s_round_cpu_decoder->Add(cbox_cpu_decoder, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_round_spu_decoder->Add(cbox_spu_decoder, wxSizerFlags().Border(wxALL, 5).Expand());
 
@@ -615,6 +618,10 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 
 	// System
 	s_subpanel_system->Add(s_round_sys_lang, wxSizerFlags().Border(wxALL, 5).Expand());
+
+	//Custom EmulationDir
+	s_subpanel_system->Add(chbox_emulationdir_enable, wxSizerFlags().Border(wxALL, 5).Expand());
+	s_subpanel_system->Add(txt_emulationdir_path, wxSizerFlags().Border(wxALL, 5).Expand());
 	
 	// Buttons
 	wxBoxSizer* s_b_panel(new wxBoxSizer(wxHORIZONTAL));
@@ -635,8 +642,8 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 
 	if(diag.ShowModal() == wxID_OK)
 	{
-		Ini.CPUDecoderMode.SetValue(cbox_cpu_decoder->GetSelection() + 1);
-		Ini.SPUDecoderMode.SetValue(cbox_spu_decoder->GetSelection() + 1);
+		Ini.CPUDecoderMode.SetValue(cbox_cpu_decoder->GetSelection());
+		Ini.SPUDecoderMode.SetValue(cbox_spu_decoder->GetSelection());
 		Ini.GSRenderMode.SetValue(cbox_gs_render->GetSelection());
 		Ini.GSResolution.SetValue(ResolutionNumToId(cbox_gs_resolution->GetSelection() + 1));
 		Ini.GSAspectRatio.SetValue(cbox_gs_aspect->GetSelection() + 1);
@@ -667,6 +674,10 @@ void MainFrame::Config(wxCommandEvent& WXUNUSED(event))
 		//Auto Pause
 		Ini.DBGAutoPauseFunctionCall.SetValue(chbox_dbg_ap_functioncall->GetValue());
 		Ini.DBGAutoPauseSystemCall.SetValue(chbox_dbg_ap_systemcall->GetValue());
+
+		//Custom EmulationDir
+		Ini.SysEmulationDirPathEnable.SetValue(chbox_emulationdir_enable->GetValue());
+		Ini.SysEmulationDirPath.SetValue(txt_emulationdir_path->GetValue().ToStdString());
 
 		Ini.Save();
 	}
@@ -727,6 +738,11 @@ void MainFrame::OpenRSXDebugger(wxCommandEvent& WXUNUSED(event))
 void MainFrame::OpenStringSearch(wxCommandEvent& WXUNUSED(event))
 {
 	(new MemoryStringSearcher(this)) -> Show();
+}
+
+void MainFrame::OpenCgDisasm(wxCommandEvent& WXUNUSED(event))
+{
+	(new CgDisasm(this))->Show();
 }
 
 void MainFrame::AboutDialogHandler(wxCommandEvent& WXUNUSED(event))

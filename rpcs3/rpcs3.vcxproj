@@ -94,6 +94,7 @@
     </Link>
     <PreBuildEvent>
       <Command>"$(SolutionDir)\Utilities\git-version-gen.cmd"</Command>
+      <Message>Updating git-version.h</Message>
     </PreBuildEvent>
     <ProjectReference>
       <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
@@ -120,6 +121,7 @@
     </Link>
     <PreBuildEvent>
       <Command>"$(SolutionDir)\Utilities\git-version-gen.cmd"</Command>
+      <Message>Updating git-version.h</Message>
     </PreBuildEvent>
     <ProjectReference>
       <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
@@ -156,14 +158,15 @@
       <AdditionalLibraryDirectories>..\wxWidgets\lib\vc_x64_lib;..\ffmpeg\Windows\x86_64\lib;..\OpenAL\Win64</AdditionalLibraryDirectories>
     </Link>
     <PreBuildEvent>
-      <Command>
-      </Command>
+      <Command>"$(SolutionDir)\Utilities\git-version-gen.cmd"</Command>
+      <Message>Updating git-version.h</Message>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Emu\Cell\PPUProgramCompiler.cpp" />
     <ClCompile Include="Emu\Io\XInput\XInputPadHandler.cpp" />
     <ClCompile Include="Gui\AutoPauseManager.cpp" />
+    <ClCompile Include="Gui\CgDisasm.cpp" />
     <ClCompile Include="Gui\CompilerELF.cpp" />
     <ClCompile Include="Gui\ConLogFrame.cpp" />
     <ClCompile Include="Gui\Debugger.cpp" />
@@ -180,6 +183,7 @@
     <ClCompile Include="Gui\MsgDialog.cpp" />
     <ClCompile Include="Gui\PADManager.cpp" />
     <ClCompile Include="Gui\RSXDebugger.cpp" />
+    <ClCompile Include="Gui\SaveDataDialog.cpp" />
     <ClCompile Include="Gui\SaveDataUtility.cpp" />
     <ClCompile Include="Gui\TextInputDialog.cpp" />
     <ClCompile Include="Gui\VFSManager.cpp" />
@@ -203,6 +207,7 @@
     <ClInclude Include="Emu\Io\XInput\XInputPadHandler.h" />
     <ClInclude Include="Gui\AboutDialog.h" />
     <ClInclude Include="Gui\AutoPauseManager.h" />
+    <ClInclude Include="Gui\CgDisasm.h" />
     <ClInclude Include="Gui\CompilerELF.h" />
     <ClInclude Include="Gui\ConLogFrame.h" />
     <ClInclude Include="Gui\Debugger.h" />
@@ -220,6 +225,7 @@
     <ClInclude Include="Gui\MsgDialog.h" />
     <ClInclude Include="Gui\RegisterEditor.h" />
     <ClInclude Include="Gui\RSXDebugger.h" />
+    <ClInclude Include="Gui\SaveDataDialog.h" />
     <ClInclude Include="Gui\SaveDataUtility.h" />
     <ClInclude Include="Gui\TextInputDialog.h" />
     <ClInclude Include="Gui\VFSManager.h" />

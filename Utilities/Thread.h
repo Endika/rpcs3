@@ -1,7 +1,4 @@
 #pragma once
-#include "Emu/Memory/atomic_type.h"
-
-static std::thread::id main_thread;
 
 class NamedThreadBase
 {
@@ -24,8 +21,9 @@ public:
 	virtual void SetThreadName(const std::string& name);
 
 	void WaitForAnySignal(u64 time = 1);
-
 	void Notify();
+
+	virtual void DumpInformation() {}
 };
 
 NamedThreadBase* GetCurrentNamedThread();
@@ -54,18 +52,34 @@ public:
 	virtual void Task() = 0;
 };
 
-class thread
+class thread_t
 {
+	enum thread_state_t
+	{
+		TS_NON_EXISTENT,
+		TS_JOINABLE,
+	};
+
+	std::atomic<thread_state_t> m_state;
 	std::string m_name;
 	std::thread m_thr;
+	bool m_autojoin;
 
 public:
-	thread(const std::string& name, std::function<void()> func);
-	thread(const std::string& name);
-	thread();
+	thread_t(const std::string& name, bool autojoin, std::function<void()> func);
+	thread_t(const std::string& name, std::function<void()> func);
+	thread_t(const std::string& name);
+	thread_t();
+	~thread_t();
 
+	thread_t(const thread_t& right) = delete;
+	thread_t(thread_t&& right) = delete;
+
+	thread_t& operator =(const thread_t& right) = delete;
+	thread_t& operator =(thread_t&& right) = delete;
 
 public:
+	void set_name(const std::string& name);
 	void start(std::function<void()> func);
 	void detach();
 	void join();
@@ -87,68 +101,60 @@ class slw_shared_mutex_t
 
 };
 
-class waiter_map_t
+struct waiter_map_t
 {
-	// TODO: optimize (use custom lightweight readers-writer lock)
-	std::mutex m_mutex;
+	static const size_t size = 32;
 
-	struct waiter_t
-	{
-		u64 signal_id;
-		NamedThreadBase* thread;
-	};
+	std::array<std::mutex, size> mutex;
+	std::array<std::condition_variable, size> cv;
 
-	std::vector<waiter_t> m_waiters;
+	const std::string name;
 
-	std::string m_name;
-
-	struct waiter_reg_t
-	{
-		NamedThreadBase* thread;
-		const u64 signal_id;
-		waiter_map_t& map;
-
-		waiter_reg_t(waiter_map_t& map, u64 signal_id)
-			: thread(nullptr)
-			, signal_id(signal_id)
-			, map(map)
-		{
-		}
-
-		~waiter_reg_t();
-
-		void init();
-	};
-
-	bool is_stopped(u64 signal_id);
-
-public:
 	waiter_map_t(const char* name)
-		: m_name(name)
+		: name(name)
 	{
 	}
 
+	bool is_stopped(u64 signal_id);
+
 	// wait until waiter_func() returns true, signal_id is an arbitrary number
-	template<typename WT> __forceinline void wait_op(u64 signal_id, const WT waiter_func)
+	template<typename S, typename WT> force_inline safe_buffers void wait_op(const S& signal_id, const WT waiter_func)
 	{
-		// register waiter
-		waiter_reg_t waiter(*this, signal_id);
+		// generate hash
+		const auto hash = std::hash<S>()(signal_id) % size;
+
+		// set mutex locker
+		std::unique_lock<std::mutex> locker(mutex[hash], std::defer_lock);
 
 		// check the condition or if the emulator is stopped
 		while (!waiter_func() && !is_stopped(signal_id))
 		{
-			// initialize waiter (only once)
-			waiter.init();
-			// wait for 1 ms or until signal arrived
-			waiter.thread->WaitForAnySignal(1);
+			// lock the mutex and initialize waiter (only once)
+			if (!locker.owns_lock())
+			{
+				locker.lock();
+			}
+			
+			// wait on appropriate condition variable for 1 ms or until signal arrived
+			cv[hash].wait_for(locker, std::chrono::milliseconds(1));
 		}
 	}
 
 	// signal all threads waiting on waiter_op() with the same signal_id (signaling only hints those threads that corresponding conditions are *probably* met)
-	void notify(u64 signal_id);
+	template<typename S> force_inline void notify(const S& signal_id)
+	{
+		// generate hash
+		const auto hash = std::hash<S>()(signal_id) % size;
+
+		// signal appropriate condition variable
+		cv[hash].notify_all();
+	}
 };
 
-bool squeue_test_exit(const volatile bool* do_exit);
+extern const std::function<bool()> SQUEUE_ALWAYS_EXIT;
+extern const std::function<bool()> SQUEUE_NEVER_EXIT;
+
+bool squeue_test_exit();
 
 template<typename T, u32 sq_size = 256>
 class squeue_t
@@ -167,7 +173,7 @@ class squeue_t
 		};
 	};
 
-	atomic_le_t<squeue_sync_var_t> m_sync;
+	atomic<squeue_sync_var_t> m_sync;
 
 	mutable std::mutex m_rcv_mutex;
 	mutable std::mutex m_wcv_mutex;
@@ -185,8 +191,8 @@ class squeue_t
 
 public:
 	squeue_t()
+		: m_sync({})
 	{
-		m_sync.write_relaxed({});
 	}
 
 	u32 get_max_size() const
@@ -196,10 +202,10 @@ public:
 
 	bool is_full() const volatile
 	{
-		return m_sync.read_relaxed().count == sq_size;
+		return m_sync.data.count == sq_size;
 	}
 
-	bool push(const T& data, const volatile bool* do_exit = nullptr)
+	bool push(const T& data, const std::function<bool()>& test_exit)
 	{
 		u32 pos = 0;
 
@@ -222,7 +228,7 @@ public:
 			return SQSVR_OK;
 		}))
 		{
-			if (res == SQSVR_FAILED && squeue_test_exit(do_exit))
+			if (res == SQSVR_FAILED && (test_exit() || squeue_test_exit()))
 			{
 				return false;
 			}
@@ -247,14 +253,22 @@ public:
 		return true;
 	}
 
-	bool try_push(const T& data)
+	bool push(const T& data, const volatile bool* do_exit)
 	{
-		static const volatile bool no_wait = true;
-
-		return push(data, &no_wait);
+		return push(data, [do_exit](){ return do_exit && *do_exit; });
 	}
 
-	bool pop(T& data, const volatile bool* do_exit = nullptr)
+	force_inline bool push(const T& data)
+	{
+		return push(data, SQUEUE_NEVER_EXIT);
+	}
+
+	force_inline bool try_push(const T& data)
+	{
+		return push(data, SQUEUE_ALWAYS_EXIT);
+	}
+
+	bool pop(T& data, const std::function<bool()>& test_exit)
 	{
 		u32 pos = 0;
 
@@ -277,7 +291,7 @@ public:
 			return SQSVR_OK;
 		}))
 		{
-			if (res == SQSVR_FAILED && squeue_test_exit(do_exit))
+			if (res == SQSVR_FAILED && (test_exit() || squeue_test_exit()))
 			{
 				return false;
 			}
@@ -307,14 +321,22 @@ public:
 		return true;
 	}
 
-	bool try_pop(T& data)
+	bool pop(T& data, const volatile bool* do_exit)
 	{
-		static const volatile bool no_wait = true;
-
-		return pop(data, &no_wait);
+		return pop(data, [do_exit](){ return do_exit && *do_exit; });
 	}
 
-	bool peek(T& data, u32 start_pos = 0, const volatile bool* do_exit = nullptr)
+	force_inline bool pop(T& data)
+	{
+		return pop(data, SQUEUE_NEVER_EXIT);
+	}
+
+	force_inline bool try_pop(T& data)
+	{
+		return pop(data, SQUEUE_ALWAYS_EXIT);
+	}
+
+	bool peek(T& data, u32 start_pos, const std::function<bool()>& test_exit)
 	{
 		assert(start_pos < sq_size);
 		u32 pos = 0;
@@ -332,13 +354,13 @@ public:
 			{
 				return SQSVR_LOCKED;
 			}
-			
+
 			sync.pop_lock = 1;
 			pos = sync.position + start_pos;
 			return SQSVR_OK;
 		}))
 		{
-			if (res == SQSVR_FAILED && squeue_test_exit(do_exit))
+			if (res == SQSVR_FAILED && (test_exit() || squeue_test_exit()))
 			{
 				return false;
 			}
@@ -361,11 +383,19 @@ public:
 		return true;
 	}
 
-	bool try_peek(T& data, u32 start_pos = 0)
+	bool peek(T& data, u32 start_pos, const volatile bool* do_exit)
 	{
-		static const volatile bool no_wait = true;
+		return peek(data, start_pos, [do_exit](){ return do_exit && *do_exit; });
+	}
 
-		return peek(data, start_pos, &no_wait);
+	force_inline bool peek(T& data, u32 start_pos = 0)
+	{
+		return peek(data, start_pos, SQUEUE_NEVER_EXIT);
+	}
+
+	force_inline bool try_peek(T& data, u32 start_pos = 0)
+	{
+		return peek(data, start_pos, SQUEUE_ALWAYS_EXIT);
 	}
 
 	class squeue_data_t

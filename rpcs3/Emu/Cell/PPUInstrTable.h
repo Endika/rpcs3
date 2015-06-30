@@ -115,8 +115,6 @@ namespace PPU_instr
 		*/
 		static CodeField<30> AA;
 
-		static CodeFieldSignedOffset<6, 29, 2> LI(FIELD_BRANCH);
-
 		//
 		static CodeFieldSignedOffset<6, 29, 2> LL(FIELD_BRANCH);
 		/*
@@ -177,6 +175,8 @@ namespace PPU_instr
 		//This immediate field is used to specify a 16-bit unsigned integer
 		static CodeField<16, 31> uimm16;
 
+		static CodeField<6, 31> uimm26;
+
 		/*
 		Record bit.
 		0		Does not update the condition register (CR).
@@ -226,6 +226,9 @@ namespace PPU_instr
 
 #define bind_instr(list, name, ...) \
 	static const auto& name = make_instr<PPU_opcodes::name>(list, #name, &PPUOpcodes::name, ##__VA_ARGS__)
+#define bind_instr_oe(list, name, ...) \
+	bind_instr(list, name, ##__VA_ARGS__); \
+	static const auto& name##O = make_instr<PPU_opcodes::name##O>(list, #name "O", &PPUOpcodes::name, ##__VA_ARGS__)
 
 		bind_instr(main_list, TDI, TO, RA, simm16);
 		bind_instr(main_list, TWI, TO, RA, simm16);
@@ -238,8 +241,9 @@ namespace PPU_instr
 		bind_instr(main_list, ADDI, RD, RA, simm16);
 		bind_instr(main_list, ADDIS, RD, RA, simm16);
 		bind_instr(main_list, BC, BO, BI, BD, AA, LK);
+		bind_instr(main_list, HACK, uimm26);
 		bind_instr(main_list, SC, LEV);
-		bind_instr(main_list, B, LI, AA, LK);
+		bind_instr(main_list, B, LL, AA, LK);
 		bind_instr(main_list, RLWIMI, RA, RS, SH, MB, ME, RC);
 		bind_instr(main_list, RLWINM, RA, RS, SH, MB, ME, RC);
 		bind_instr(main_list, RLWNM, RA, RS, RB, MB, ME, RC);
@@ -456,9 +460,9 @@ namespace PPU_instr
 		/*0x004*/bind_instr(g1f_list, TW, TO, RA, RB);
 		/*0x006*/bind_instr(g1f_list, LVSL, VD, RA, RB);
 		/*0x007*/bind_instr(g1f_list, LVEBX, VD, RA, RB);
-		/*0x008*/bind_instr(g1f_list, SUBFC, RD, RA, RB, OE, RC);
+		/*0x008*/bind_instr_oe(g1f_list, SUBFC, RD, RA, RB, OE, RC);
 		/*0x009*/bind_instr(g1f_list, MULHDU, RD, RA, RB, RC);
-		/*0x00a*/bind_instr(g1f_list, ADDC, RD, RA, RB, OE, RC);
+		/*0x00a*/bind_instr_oe(g1f_list, ADDC, RD, RA, RB, OE, RC);
 		/*0x00b*/bind_instr(g1f_list, MULHWU, RD, RA, RB, RC);
 		/*0x013*/bind_instr(g1f_list, MFOCRF, L_11, RD, CRM);
 		/*0x014*/bind_instr(g1f_list, LWARX, RD, RA, RB);
@@ -471,7 +475,7 @@ namespace PPU_instr
 		/*0x020*/bind_instr(g1f_list, CMPL, CRFD, L_10, RA, RB);
 		/*0x026*/bind_instr(g1f_list, LVSR, VD, RA, RB);
 		/*0x027*/bind_instr(g1f_list, LVEHX, VD, RA, RB);
-		/*0x028*/bind_instr(g1f_list, SUBF, RD, RA, RB, OE, RC);
+		/*0x028*/bind_instr_oe(g1f_list, SUBF, RD, RA, RB, OE, RC);
 		/*0x035*/bind_instr(g1f_list, LDUX, RD, RA, RB);
 		/*0x036*/bind_instr(g1f_list, DCBST, RA, RB);
 		/*0x037*/bind_instr(g1f_list, LWZUX, RD, RA, RB);
@@ -485,12 +489,12 @@ namespace PPU_instr
 		/*0x056*/bind_instr(g1f_list, DCBF, RA, RB);
 		/*0x057*/bind_instr(g1f_list, LBZX, RD, RA, RB);
 		/*0x067*/bind_instr(g1f_list, LVX, VD, RA, RB);
-		/*0x068*/bind_instr(g1f_list, NEG, RD, RA, OE, RC);
+		/*0x068*/bind_instr_oe(g1f_list, NEG, RD, RA, OE, RC);
 		/*0x077*/bind_instr(g1f_list, LBZUX, RD, RA, RB);
 		/*0x07c*/bind_instr(g1f_list, NOR, RA, RS, RB, RC);
 		/*0x087*/bind_instr(g1f_list, STVEBX, VS, RA, RB);
-		/*0x088*/bind_instr(g1f_list, SUBFE, RD, RA, RB, OE, RC);
-		/*0x08a*/bind_instr(g1f_list, ADDE, RD, RA, RB, OE, RC);
+		/*0x088*/bind_instr_oe(g1f_list, SUBFE, RD, RA, RB, OE, RC);
+		/*0x08a*/bind_instr_oe(g1f_list, ADDE, RD, RA, RB, OE, RC);
 		/*0x090*/bind_instr(g1f_list, MTOCRF, L_11, CRM, RS);
 		/*0x095*/bind_instr(g1f_list, STDX, RS, RA, RB);
 		/*0x096*/bind_instr(g1f_list, STWCX_, RS, RA, RB);
@@ -499,18 +503,18 @@ namespace PPU_instr
 		/*0x0b5*/bind_instr(g1f_list, STDUX, RS, RA, RB);
 		/*0x0b7*/bind_instr(g1f_list, STWUX, RS, RA, RB);
 		/*0x0c7*/bind_instr(g1f_list, STVEWX, VS, RA, RB);
-		/*0x0c8*/bind_instr(g1f_list, SUBFZE, RD, RA, OE, RC);
-		/*0x0ca*/bind_instr(g1f_list, ADDZE, RD, RA, OE, RC);
+		/*0x0c8*/bind_instr_oe(g1f_list, SUBFZE, RD, RA, OE, RC);
+		/*0x0ca*/bind_instr_oe(g1f_list, ADDZE, RD, RA, OE, RC);
 		/*0x0d6*/bind_instr(g1f_list, STDCX_, RS, RA, RB);
 		/*0x0d7*/bind_instr(g1f_list, STBX, RS, RA, RB);
 		/*0x0e7*/bind_instr(g1f_list, STVX, VS, RA, RB);
-		/*0x0e8*/bind_instr(g1f_list, SUBFME, RD, RA, OE, RC);
-		/*0x0e9*/bind_instr(g1f_list, MULLD, RD, RA, RB, OE, RC);
-		/*0x0ea*/bind_instr(g1f_list, ADDME, RD, RA, OE, RC);
-		/*0x0eb*/bind_instr(g1f_list, MULLW, RD, RA, RB, OE, RC);
+		/*0x0e8*/bind_instr_oe(g1f_list, SUBFME, RD, RA, OE, RC);
+		/*0x0e9*/bind_instr_oe(g1f_list, MULLD, RD, RA, RB, OE, RC);
+		/*0x0ea*/bind_instr_oe(g1f_list, ADDME, RD, RA, OE, RC);
+		/*0x0eb*/bind_instr_oe(g1f_list, MULLW, RD, RA, RB, OE, RC);
 		/*0x0f6*/bind_instr(g1f_list, DCBTST, RA, RB, TH);
 		/*0x0f7*/bind_instr(g1f_list, STBUX, RS, RA, RB);
-		/*0x10a*/bind_instr(g1f_list, ADD, RD, RA, RB, OE, RC);
+		/*0x10a*/bind_instr_oe(g1f_list, ADD, RD, RA, RB, OE, RC);
 		/*0x116*/bind_instr(g1f_list, DCBT, RA, RB, TH);
 		/*0x117*/bind_instr(g1f_list, LHZX, RD, RA, RB);
 		/*0x11c*/bind_instr(g1f_list, EQV, RA, RS, RB, RC);
@@ -531,15 +535,21 @@ namespace PPU_instr
 		/*0x1b6*/bind_instr(g1f_list, ECOWX, RS, RA, RB);
 		/*0x1b7*/bind_instr(g1f_list, STHUX, RS, RA, RB);
 		/*0x1bc*/bind_instr(g1f_list, OR, RA, RS, RB, RC);
-		/*0x1c9*/bind_instr(g1f_list, DIVDU, RD, RA, RB, OE, RC);
-		/*0x1cb*/bind_instr(g1f_list, DIVWU, RD, RA, RB, OE, RC);
+		/*0x1c9*/bind_instr_oe(g1f_list, DIVDU, RD, RA, RB, OE, RC);
+		/*0x1cb*/bind_instr_oe(g1f_list, DIVWU, RD, RA, RB, OE, RC);
 		/*0x1d3*/bind_instr(g1f_list, MTSPR, SPR, RS);
 		/*0x1d6*///DCBI
 		/*0x1dc*/bind_instr(g1f_list, NAND, RA, RS, RB, RC);
 		/*0x1e7*/bind_instr(g1f_list, STVXL, VS, RA, RB);
-		/*0x1e9*/bind_instr(g1f_list, DIVD, RD, RA, RB, OE, RC);
-		/*0x1eb*/bind_instr(g1f_list, DIVW, RD, RA, RB, OE, RC);
+		/*0x1e9*/bind_instr_oe(g1f_list, DIVD, RD, RA, RB, OE, RC);
+		/*0x1eb*/bind_instr_oe(g1f_list, DIVW, RD, RA, RB, OE, RC);
 		/*0x207*/bind_instr(g1f_list, LVLX, VD, RA, RB);
+		// MULH{D|DU|W|WU} don't use OE, but a real Cell accepts
+		// opcodes with OE=1 and Rc=0, behaving as if OE was not set.
+		// OE=1 and Rc=1 causes an invalid instruction exception, but
+		// we don't worry about that.
+		static const auto& MULHDUO = make_instr<0x209>(g1f_list, "MULHDUO", &PPUOpcodes::MULHDU, RD, RA, RB, RC);
+		static const auto& MULHWUO = make_instr<0x20b>(g1f_list, "MULHWUO", &PPUOpcodes::MULHWU, RD, RA, RB, RC);
 		/*0x214*/bind_instr(g1f_list, LDBRX, RD, RA, RB);
 		/*0x215*/bind_instr(g1f_list, LSWX, RD, RA, RB);
 		/*0x216*/bind_instr(g1f_list, LWBRX, RD, RA, RB);
@@ -548,11 +558,14 @@ namespace PPU_instr
 		/*0x21b*/bind_instr(g1f_list, SRD, RA, RS, RB, RC);
 		/*0x227*/bind_instr(g1f_list, LVRX, VD, RA, RB);
 		/*0x237*/bind_instr(g1f_list, LFSUX, FRD, RA, RB);
+		static const auto& MULHDO = make_instr<0x249>(g1f_list, "MULHDO", &PPUOpcodes::MULHD, RD, RA, RB, RC);
+		static const auto& MULHWO = make_instr<0x24b>(g1f_list, "MULHWO", &PPUOpcodes::MULHW, RD, RA, RB, RC);
 		/*0x255*/bind_instr(g1f_list, LSWI, RD, RA, NB);
 		/*0x256*/bind_instr(g1f_list, SYNC, L_9_10);
 		/*0x257*/bind_instr(g1f_list, LFDX, FRD, RA, RB);
 		/*0x277*/bind_instr(g1f_list, LFDUX, FRD, RA, RB);
 		/*0x287*/bind_instr(g1f_list, STVLX, VS, RA, RB);
+		/*0x294*/bind_instr(g1f_list, STDBRX, RD, RA, RB);
 		/*0x296*/bind_instr(g1f_list, STSWX, RS, RA, RB);
 		/*0x296*/bind_instr(g1f_list, STWBRX, RS, RA, RB);
 		/*0x297*/bind_instr(g1f_list, STFSX, FRS, RA, RB);
@@ -637,22 +650,53 @@ namespace PPU_instr
 			r12, r13, r14, r15, r16, r17, r18, r19, r20, r21,
 			r22, r23, r24, r25, r26, r27, r28, r29, r30, r31
 		};
+
+		enum
+		{
+			cr0, cr1, cr2, cr3, cr4, cr5, cr6, cr7
+		};
 	}
 
 	namespace implicts
 	{
 		using namespace lists;
 
-		//static auto LIS = std::bind(ADDIS, std::placeholders::_1, r0, std::placeholders::_2);
-		//static auto LI = std::bind(ADDI, std::placeholders::_1, r0, std::placeholders::_2);
-		static auto NOP = std::bind(ORI, r0, r0, 0);
-		static auto MR = std::bind(OR, std::placeholders::_1, std::placeholders::_2, std::placeholders::_2, false);
-		static auto BLR = std::bind(BCLR, 0x10 | 0x04, 0, 0, 0);
-		static auto BCTR = std::bind(BCCTR, 0x10 | 0x04, 0, 0, 0);
-		static auto BCTRL = std::bind(BCCTR, 0x10 | 0x04, 0, 0, 1);
-		static auto MTCTR = std::bind(MTSPR, (0x1 << 5) | 0x8, std::placeholders::_1);
-	}
+		inline u32 LIS(u32 reg, u32 imm) { return ADDIS(reg, r0, imm); }
+		inline u32 LI_(u32 reg, u32 imm) { return ADDI(reg, r0, imm); }
+		inline u32 NOP() { return ORI(r0, r0, 0); }
+		inline u32 MR(u32 x, u32 y) { return OR(x, y, y, false); }
+		inline u32 BLR() { return BCLR(0x10 | 0x04, 0, 0, 0); }
+		inline u32 BCTR() { return BCCTR(0x10 | 0x04, 0, 0, 0); }
+		inline u32 BCTRL() { return BCCTR(0x10 | 0x04, 0, 0, 1); }
+		inline u32 MFCTR(u32 reg) { return MFSPR(reg, 9 << 5); }
+		inline u32 MTCTR(u32 reg) { return MTSPR(9 << 5, reg); }
+		inline u32 MFLR(u32 reg) { return MFSPR(reg, 8 << 5); }
+		inline u32 MTLR(u32 reg) { return MTSPR(8 << 5, reg); }
 
+		inline u32 BNE(u32 cr, s32 imm) { return BC(4, 2 | cr << 2, imm, 0, 0); }
+		inline u32 BEQ(u32 cr, s32 imm) { return BC(12, 2 | cr << 2, imm, 0, 0); }
+		inline u32 BGT(u32 cr, s32 imm) { return BC(12, 1 | cr << 2, imm, 0, 0); }
+
+		inline u32 BNE(s32 imm) { return BNE(cr0, imm); }
+		inline u32 BEQ(s32 imm) { return BEQ(cr0, imm); }
+		inline u32 BGT(s32 imm) { return BGT(cr0, imm); }
+
+		inline u32 CMPDI(u32 cr, u32 reg, u32 imm) { return CMPI(cr, 1, reg, imm); }
+		inline u32 CMPDI(u32 reg, u32 imm) { return CMPDI(cr0, reg, imm); }
+
+		inline u32 CMPWI(u32 cr, u32 reg, u32 imm) { return CMPI(cr, 0, reg, imm); }
+		inline u32 CMPWI(u32 reg, u32 imm) { return CMPWI(cr0, reg, imm); }
+
+		inline u32 CMPLDI(u32 cr, u32 reg, u32 imm) { return CMPLI(cr, 1, reg, imm); }
+		inline u32 CMPLDI(u32 reg, u32 imm) { return CMPLDI(cr0, reg, imm); }
+
+		inline u32 CMPLWI(u32 cr, u32 reg, u32 imm) { return CMPLI(cr, 0, reg, imm); }
+		inline u32 CMPLWI(u32 reg, u32 imm) { return CMPLWI(cr0, reg, imm); }
+
+		inline u32 EXTRDI(u32 x, u32 y, u32 n, u32 b) { return RLDICL(x, y, b + n, 64 - b, false); }
+		inline u32 SRDI(u32 x, u32 y, u32 n) { return RLDICL(x, y, 64 - n, n, false); }
+		inline u32 CLRLDI(u32 x, u32 y, u32 n) { return RLDICL(x, y, 0, n, false); }
+	}
 
 	using namespace lists;
 	using namespace implicts;

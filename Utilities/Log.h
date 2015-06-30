@@ -5,10 +5,10 @@
 
 //first parameter is of type Log::LogType and text is of type std::string
 
-#define LOG_SUCCESS(logType, text, ...)           log_message(logType, Log::Success, text, ##__VA_ARGS__)
-#define LOG_NOTICE(logType, text, ...)            log_message(logType, Log::Notice,  text, ##__VA_ARGS__) 
-#define LOG_WARNING(logType, text, ...)           log_message(logType, Log::Warning, text, ##__VA_ARGS__) 
-#define LOG_ERROR(logType, text, ...)             log_message(logType, Log::Error,   text, ##__VA_ARGS__)
+#define LOG_SUCCESS(logType, text, ...)           log_message(logType, Log::LogSeveritySuccess, text, ##__VA_ARGS__)
+#define LOG_NOTICE(logType, text, ...)            log_message(logType, Log::LogSeverityNotice,  text, ##__VA_ARGS__) 
+#define LOG_WARNING(logType, text, ...)           log_message(logType, Log::LogSeverityWarning, text, ##__VA_ARGS__) 
+#define LOG_ERROR(logType, text, ...)             log_message(logType, Log::LogSeverityError,   text, ##__VA_ARGS__)
 
 namespace Log
 {
@@ -50,10 +50,10 @@ namespace Log
 
 	enum LogSeverity : u32
 	{
-		Success = 0,
-		Notice,
-		Warning,
-		Error,
+		LogSeverityNotice = 0,
+		LogSeverityWarning,
+		LogSeveritySuccess,
+		LogSeverityError,
 	};
 
 	struct LogMessage
@@ -126,18 +126,10 @@ static struct { inline operator Log::LogType() { return Log::LogType::SPU; } } S
 static struct { inline operator Log::LogType() { return Log::LogType::ARMv7; } } ARMv7;
 static struct { inline operator Log::LogType() { return Log::LogType::TTY; } } TTY;
 
-inline void log_message(Log::LogType type, Log::LogSeverity sev, const char* text)
-{
-	//another msvc bug makes this not work, uncomment this and delete everything else in this function when it's fixed
-	//Log::LogManager::getInstance().log({logType, severity, text})
+void log_message(Log::LogType type, Log::LogSeverity sev, const char* text);
+void log_message(Log::LogType type, Log::LogSeverity sev, std::string text);
 
-	Log::LogMessage msg{type, sev, text};
-	Log::LogManager::getInstance().log(msg);
-}
-
-template<typename T, typename ...Ts> 
-inline void log_message(Log::LogType type, Log::LogSeverity sev, const char* text, T arg, Ts... args)
+template<typename... Args> never_inline void log_message(Log::LogType type, Log::LogSeverity sev, const char* fmt, Args... args)
 {
-	Log::LogMessage msg{type, sev, fmt::Format(text, arg, args...)};
-	Log::LogManager::getInstance().log(msg);
+	log_message(type, sev, fmt::Format(fmt, fmt::do_unveil(args)...));
 }
