@@ -1,4 +1,5 @@
 #pragma once
+
 #include "Emu/Cell/Common.h"
 #include "Emu/CPU/CPUThread.h"
 #include "Emu/Memory/vm.h"
@@ -16,18 +17,6 @@ enum
 	CR_GT = 0x4,
 	CR_EQ = 0x2,
 	CR_SO = 0x1,
-};
-
-enum
-{
-	PPU_THREAD_STATUS_IDLE      = (1 << 0),
-	PPU_THREAD_STATUS_RUNNABLE  = (1 << 1),
-	PPU_THREAD_STATUS_ONPROC    = (1 << 2),
-	PPU_THREAD_STATUS_SLEEP     = (1 << 3),
-	PPU_THREAD_STATUS_STOP      = (1 << 4),
-	PPU_THREAD_STATUS_ZOMBIE    = (1 << 5),
-	PPU_THREAD_STATUS_DELETED   = (1 << 6),
-	PPU_THREAD_STATUS_UNKNOWN   = (1 << 7),
 };
 
 enum FPSCR_EXP
@@ -363,7 +352,7 @@ struct PPCdouble
 		case _FPCLASS_PD:    return FPR_PD;
 		case _FPCLASS_PN:    return FPR_PN;
 		case _FPCLASS_PINF:  return FPR_PINF;
-		default: throw fmt::Format("PPCdouble::UpdateType() -> unknown fpclass (0x%04x).", fpc);
+		default: throw EXCEPTION("Unknown fpclass (0x%04x)", fpc);
 		}
 #else
 		switch (fpc)
@@ -467,16 +456,16 @@ struct FPRdouble
 	static int Cmp(PPCdouble a, PPCdouble b);
 };
 
-class PPUThread : public CPUThread
+class PPUThread final : public CPUThread
 {
 public:
-	PPCdouble FPR[32]; //Floating Point Register
-	FPSCRhdr FPSCR; //Floating Point Status and Control Register
-	u64 GPR[32]; //General-Purpose Register
-	u128 VPR[32];
-	u32 vpcr;
+	PPCdouble FPR[32]{}; //Floating Point Register
+	FPSCRhdr FPSCR{}; //Floating Point Status and Control Register
+	u64 GPR[32]{}; //General-Purpose Register
+	v128 VPR[32]{};
+	u32 vpcr = 0;
 
-	CRhdr CR; //Condition Register
+	CRhdr CR{}; //Condition Register
 	//CR0
 	// 0 : LT - Negative (is negative)
 	// : 0 - Result is not negative
@@ -507,7 +496,7 @@ public:
 
 	//SPR : Special-Purpose Registers
 
-	XERhdr XER; //SPR 0x001 : Fixed-Point Expection Register
+	XERhdr XER{}; //SPR 0x001 : Fixed-Point Expection Register
 	// 0 : SO - Summary overflow
 	// : 0 - No overflow occurred
 	// : 1 - Overflow occurred
@@ -521,26 +510,47 @@ public:
 	// 25 - 31 : TBC
 	// Transfer-byte count
 
-	MSRhdr MSR; //Machine State Register
-	PVRhdr PVR; //Processor Version Register
+	MSRhdr MSR{}; //Machine State Register
+	PVRhdr PVR{}; //Processor Version Register
 
-	VSCRhdr VSCR; // Vector Status and Control Register
+	VSCRhdr VSCR{}; // Vector Status and Control Register
 
-	u64 LR;     //SPR 0x008 : Link Register
-	u64 CTR;    //SPR 0x009 : Count Register
+	u64 LR = 0;     //SPR 0x008 : Link Register
+	u64 CTR = 0;    //SPR 0x009 : Count Register
 
-	u32 VRSAVE; //SPR 0x100: VR Save/Restore Register (32 bits)
+	u32 VRSAVE = 0; //SPR 0x100: VR Save/Restore Register (32 bits)
 
-	u64 SPRG[8]; //SPR 0x110 - 0x117 : SPR General-Purpose Registers
+	u64 SPRG[8]{}; //SPR 0x110 - 0x117 : SPR General-Purpose Registers
 
 	//TBR : Time-Base Registers
-	u64 TB;	//TBR 0x10C - 0x10D
+	u64 TB = 0; //TBR 0x10C - 0x10D
+
+	u32 PC = 0;
+	s32 prio = 0; // thread priority
+	u32 stack_addr = 0; // stack address
+	u32 stack_size = 0; // stack size
+	bool is_joinable = true;
+	bool is_joining = false;
+
+	u64 hle_code = 0; // current syscall (~0..~1023) or function id (1..UINT32_MAX)
 
 	std::function<void(PPUThread& CPU)> custom_task;
 
 public:
-	PPUThread();
-	virtual ~PPUThread();
+	PPUThread(const std::string& name);
+	virtual ~PPUThread() override;
+
+	virtual void dump_info() const override;
+	virtual u32 get_pc() const override { return PC; }
+	virtual u32 get_offset() const override { return 0; }
+	virtual void do_run() override;
+	virtual void task() override;
+
+	virtual void init_regs() override;
+	virtual void init_stack() override;
+	virtual void close_stack() override;
+
+	virtual bool handle_interrupt() override;
 
 	inline u8 GetCR(const u8 n) const
 	{
@@ -693,54 +703,55 @@ public:
 		FPSCR.FI = val;
 	}
 
-	virtual std::string RegsToString()
+	virtual std::string RegsToString() const override
 	{
 		std::string ret = "Registers:\n=========\n";
 
-		for(uint i=0; i<32; ++i) ret += fmt::Format("GPR[%d] = 0x%llx\n", i, GPR[i]);
-		for(uint i=0; i<32; ++i) ret += fmt::Format("FPR[%d] = %.6G\n", i, (double)FPR[i]);
-		for(uint i=0; i<32; ++i) ret += fmt::Format("VPR[%d] = 0x%s [%s]\n", i, VPR[i].to_hex().c_str(), VPR[i].to_xyzw().c_str());
-		ret += fmt::Format("CR = 0x%08x\n", CR.CR);
-		ret += fmt::Format("LR = 0x%llx\n", LR);
-		ret += fmt::Format("CTR = 0x%llx\n", CTR);
-		ret += fmt::Format("XER = 0x%llx [CA=%lld | OV=%lld | SO=%lld]\n", XER.XER, fmt::by_value(XER.CA), fmt::by_value(XER.OV), fmt::by_value(XER.SO));
-		ret += fmt::Format("FPSCR = 0x%x "
+		for(uint i=0; i<32; ++i) ret += fmt::format("GPR[%d] = 0x%llx\n", i, GPR[i]);
+		for(uint i=0; i<32; ++i) ret += fmt::format("FPR[%d] = %.6G\n", i, (double)FPR[i]);
+		for(uint i=0; i<32; ++i) ret += fmt::format("VPR[%d] = 0x%s [%s]\n", i, VPR[i].to_hex().c_str(), VPR[i].to_xyzw().c_str());
+		ret += fmt::format("CR = 0x%08x\n", CR.CR);
+		ret += fmt::format("LR = 0x%llx\n", LR);
+		ret += fmt::format("CTR = 0x%llx\n", CTR);
+		ret += fmt::format("XER = 0x%llx [CA=%lld | OV=%lld | SO=%lld]\n", XER.XER, u32{ XER.CA }, u32{ XER.OV }, u32{ XER.SO });
+		ret += fmt::format("FPSCR = 0x%x "
 			"[RN=%d | NI=%d | XE=%d | ZE=%d | UE=%d | OE=%d | VE=%d | "
 			"VXCVI=%d | VXSQRT=%d | VXSOFT=%d | FPRF=%d | "
 			"FI=%d | FR=%d | VXVC=%d | VXIMZ=%d | "
 			"VXZDZ=%d | VXIDI=%d | VXISI=%d | VXSNAN=%d | "
 			"XX=%d | ZX=%d | UX=%d | OX=%d | VX=%d | FEX=%d | FX=%d]\n",
 			FPSCR.FPSCR,
-			fmt::by_value(FPSCR.RN),
-			fmt::by_value(FPSCR.NI), fmt::by_value(FPSCR.XE), fmt::by_value(FPSCR.ZE), fmt::by_value(FPSCR.UE), fmt::by_value(FPSCR.OE), fmt::by_value(FPSCR.VE),
-			fmt::by_value(FPSCR.VXCVI), fmt::by_value(FPSCR.VXSQRT), fmt::by_value(FPSCR.VXSOFT), fmt::by_value(FPSCR.FPRF),
-			fmt::by_value(FPSCR.FI), fmt::by_value(FPSCR.FR), fmt::by_value(FPSCR.VXVC), fmt::by_value(FPSCR.VXIMZ),
-			fmt::by_value(FPSCR.VXZDZ), fmt::by_value(FPSCR.VXIDI), fmt::by_value(FPSCR.VXISI), fmt::by_value(FPSCR.VXSNAN),
-			fmt::by_value(FPSCR.XX), fmt::by_value(FPSCR.ZX), fmt::by_value(FPSCR.UX), fmt::by_value(FPSCR.OX), fmt::by_value(FPSCR.VX), fmt::by_value(FPSCR.FEX), fmt::by_value(FPSCR.FX));
+			u32{ FPSCR.RN },
+			u32{ FPSCR.NI }, u32{ FPSCR.XE }, u32{ FPSCR.ZE }, u32{ FPSCR.UE }, u32{ FPSCR.OE }, u32{ FPSCR.VE },
+			u32{ FPSCR.VXCVI }, u32{ FPSCR.VXSQRT }, u32{ FPSCR.VXSOFT }, u32{ FPSCR.FPRF },
+			u32{ FPSCR.FI }, u32{ FPSCR.FR }, u32{ FPSCR.VXVC }, u32{ FPSCR.VXIMZ },
+			u32{ FPSCR.VXZDZ }, u32{ FPSCR.VXIDI }, u32{ FPSCR.VXISI }, u32{ FPSCR.VXSNAN },
+			u32{ FPSCR.XX }, u32{ FPSCR.ZX }, u32{ FPSCR.UX }, u32{ FPSCR.OX }, u32{ FPSCR.VX }, u32{ FPSCR.FEX }, u32{ FPSCR.FX });
 
 		return ret;
 	}
 
-	virtual std::string ReadRegString(const std::string& reg)
+	virtual std::string ReadRegString(const std::string& reg) const override
 	{
 		std::string::size_type first_brk = reg.find('[');
 		if (first_brk != std::string::npos)
 		{
 			long reg_index = atol(reg.substr(first_brk+1,reg.length()-first_brk-2).c_str());
-			if (reg.find("GPR")==0) return fmt::Format("%016llx", GPR[reg_index]);
-			if (reg.find("FPR")==0) return fmt::Format("%016llx", (double)FPR[reg_index]);
-			if (reg.find("VPR")==0) return fmt::Format("%016llx%016llx", VPR[reg_index]._u64[1], VPR[reg_index]._u64[0]);
+			if (reg.find("GPR")==0) return fmt::format("%016llx", GPR[reg_index]);
+			if (reg.find("FPR")==0) return fmt::format("%016llx", (double)FPR[reg_index]);
+			if (reg.find("VPR")==0) return fmt::format("%016llx%016llx", VPR[reg_index]._u64[1], VPR[reg_index]._u64[0]);
 		}
-		if (reg == "CR")    return fmt::Format("%08x", CR.CR);
-		if (reg == "LR")    return fmt::Format("%016llx", LR);
-		if (reg == "CTR")   return fmt::Format("%016llx", CTR);
-		if (reg == "XER")   return fmt::Format("%016llx", XER.XER);
-		if (reg == "FPSCR") return fmt::Format("%08x", FPSCR.FPSCR);
+		if (reg == "CR")    return fmt::format("%08x", CR.CR);
+		if (reg == "LR")    return fmt::format("%016llx", LR);
+		if (reg == "CTR")   return fmt::format("%016llx", CTR);
+		if (reg == "XER")   return fmt::format("%016llx", XER.XER);
+		if (reg == "FPSCR") return fmt::format("%08x", FPSCR.FPSCR);
 
 		return "";
 	}
 
-	bool WriteRegString(const std::string& reg, std::string value) {
+	bool WriteRegString(const std::string& reg, std::string value) override
+	{
 		while (value.length() < 32) value = "0"+value;
 		std::string::size_type first_brk = reg.find('[');
 		try
@@ -802,38 +813,25 @@ public:
 		}
 		else
 		{
-			return GetStackArg(++g_count);
+			return get_stack_arg(++g_count);
 		}
 	}
 
 public:
-	virtual void InitRegs() override;
-	virtual void InitStack() override;
-	virtual void CloseStack() override;
-	virtual void Task() override;
-	u64 GetStackArg(s32 i);
-	void FastCall2(u32 addr, u32 rtoc);
-	void FastStop();
-	virtual void DoRun() override;
-
-protected:
-	virtual void DoReset() override;
-	virtual void DoPause() override;
-	virtual void DoResume() override;
-	virtual void DoStop() override;
+	u64 get_stack_arg(s32 i);
+	void fast_call(u32 addr, u32 rtoc);
+	void fast_stop();
 };
-
-PPUThread& GetCurrentPPUThread();
 
 class ppu_thread : cpu_thread
 {
 	static const u32 stack_align = 0x10;
-	vm::ptr<u64> argv;
+	vm::_ptr_base<be_t<u64>> argv;
 	u32 argc;
-	vm::ptr<u64> envp;
+	vm::_ptr_base<be_t<u64>> envp;
 
 public:
-	ppu_thread(u32 entry, const std::string& name = "", u32 stack_size = 0, u32 prio = 0);
+	ppu_thread(u32 entry, const std::string& name = "", u32 stack_size = 0, s32 prio = 0);
 
 	cpu_thread& args(std::initializer_list<std::string> values) override;
 	cpu_thread& run() override;
@@ -985,16 +983,16 @@ struct cast_ppu_gpr<s64, false>
 };
 
 template<>
-struct cast_ppu_gpr<bool, false>
+struct cast_ppu_gpr<b8, false>
 {
-	force_inline static u64 to_gpr(const bool& value)
+	force_inline static u64 to_gpr(const b8& value)
 	{
 		return value;
 	}
 
-	force_inline static bool from_gpr(const u64& reg)
+	force_inline static b8 from_gpr(const u64& reg)
 	{
-		return reinterpret_cast<const bool&>(reg);
+		return static_cast<u32>(reg) != 0;
 	}
 };
 

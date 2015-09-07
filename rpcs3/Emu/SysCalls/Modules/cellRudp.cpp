@@ -1,43 +1,67 @@
 #include "stdafx.h"
 #include "Emu/Memory/Memory.h"
+#include "Emu/IdManager.h"
 #include "Emu/System.h"
 #include "Emu/SysCalls/Modules.h"
+
 #include "cellRudp.h"
 
 extern Module cellRudp;
 
-struct cellRudpInternal
+struct rudp_t
 {
-	bool m_bInitialized;
+	// allocator functions
+	std::function<vm::ptr<void>(PPUThread& ppu, u32 size)> malloc;
+	std::function<void(PPUThread& ppu, vm::ptr<void> ptr)> free;
 
-	cellRudpInternal()
-		: m_bInitialized(false)
-	{
-	}
+	// event handler function
+	vm::ptr<CellRudpEventHandler> handler = vm::null;
+	vm::ptr<void> handler_arg;
 };
-
-cellRudpInternal cellRudpInstance;
 
 s32 cellRudpInit(vm::ptr<CellRudpAllocator> allocator)
 {
-	cellRudp.Warning("cellRudpInit()");
+	cellRudp.Warning("cellRudpInit(allocator=*0x%x)", allocator);
 
-	if (cellRudpInstance.m_bInitialized)
+	const auto rudp = fxm::make<rudp_t>();
+
+	if (!rudp)
+	{
 		return CELL_RUDP_ERROR_ALREADY_INITIALIZED;
+	}
 
-	cellRudpInstance.m_bInitialized = true;
+	if (allocator)
+	{
+		rudp->malloc = allocator->app_malloc;
+		rudp->free = allocator->app_free;
+	}
+	else
+	{
+		rudp->malloc = [](PPUThread& ppu, u32 size)
+		{
+			return vm::ptr<void>::make(vm::alloc(size, vm::main));
+		};
+
+		rudp->free = [](PPUThread& ppu, vm::ptr<void> ptr)
+		{
+			if (!vm::dealloc(ptr.addr(), vm::main))
+			{
+				throw EXCEPTION("Memory deallocation failed (ptr=0x%x)", ptr);
+			}
+		};
+	}
 
 	return CELL_OK;
 }
 
 s32 cellRudpEnd()
 {
-	cellRudp.Log("cellRudpInit()");
+	cellRudp.Warning("cellRudpEnd()");
 
-	if (!cellRudpInstance.m_bInitialized)
+	if (!fxm::remove<rudp_t>())
+	{
 		return CELL_RUDP_ERROR_NOT_INITIALIZED;
-
-	cellRudpInstance.m_bInitialized = false;
+	}
 
 	return CELL_OK;
 }
@@ -48,15 +72,26 @@ s32 cellRudpEnableInternalIOThread()
 	return CELL_OK;
 }
 
-s32 cellRudpSetEventHandler()
+s32 cellRudpSetEventHandler(vm::ptr<CellRudpEventHandler> handler, vm::ptr<void> arg)
 {
-	UNIMPLEMENTED_FUNC(cellRudp);
+	cellRudp.Todo("cellRudpSetEventHandler(handler=*0x%x, arg=*0x%x)", handler, arg);
+
+	const auto rudp = fxm::get<rudp_t>();
+
+	if (!rudp)
+	{
+		return CELL_RUDP_ERROR_NOT_INITIALIZED;
+	}
+
+	rudp->handler = handler;
+	rudp->handler_arg = arg;
+
 	return CELL_OK;
 }
 
-s32 cellRudpSetMaxSegmentSize()
+s32 cellRudpSetMaxSegmentSize(u16 mss)
 {
-	UNIMPLEMENTED_FUNC(cellRudp);
+	cellRudp.Todo("cellRudpSetMaxSegmentSize(mss=%d)", mss);
 	return CELL_OK;
 }
 
@@ -186,6 +221,12 @@ s32 cellRudpPollWait()
 	return CELL_OK;
 }
 
+s32 cellRudpPollCancel()
+{
+	UNIMPLEMENTED_FUNC(cellRudp);
+	return CELL_OK;
+}
+
 s32 cellRudpNetReceived()
 {
 	UNIMPLEMENTED_FUNC(cellRudp);
@@ -200,8 +241,6 @@ s32 cellRudpProcessEvents()
 
 Module cellRudp("cellRudp", []()
 {
-	cellRudpInstance.m_bInitialized = false;
-
 	REG_FUNC(cellRudp, cellRudpInit);
 	REG_FUNC(cellRudp, cellRudpEnd);
 	REG_FUNC(cellRudp, cellRudpEnableInternalIOThread);
@@ -233,7 +272,7 @@ Module cellRudp("cellRudp", []()
 	REG_FUNC(cellRudp, cellRudpPollDestroy);
 	REG_FUNC(cellRudp, cellRudpPollControl);
 	REG_FUNC(cellRudp, cellRudpPollWait);
-	//REG_FUNC(cellRudp, cellRudpPollCancel);
+	REG_FUNC(cellRudp, cellRudpPollCancel);
 
 	REG_FUNC(cellRudp, cellRudpNetReceived);
 	REG_FUNC(cellRudp, cellRudpProcessEvents);

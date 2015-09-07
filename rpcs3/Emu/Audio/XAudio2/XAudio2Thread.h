@@ -2,16 +2,9 @@
 
 #include "Emu/Audio/AudioThread.h"
 #if defined (_WIN32)
-
-// forced define Win7, delete this for using XAudio2 2.8
-#define FORCED_WINVER 0x0601
-
-#if (FORCED_WINVER >= 0x0602 /*_WIN32_WINNT_WIN8*/)
-#include <xaudio2.h>
-#pragma comment(lib,"xaudio2.lib")
-#else
-#include "XAudio2.h" // XAudio2 2.8 available only on Win8+, used XAudio2 2.7 from dxsdk
-#endif
+#define _WIN32_WINNT 0x0601 // This is to be sure that correct (2.7) header is included
+#include "minidx9/Include/XAudio2.h" // XAudio2 2.8 available only on Win8+, used XAudio2 2.7 from dxsdk
+#undef _WIN32_WINNT
 
 class XAudio2Thread : public AudioThread
 {
@@ -22,6 +15,7 @@ private:
 
 public:
 	virtual ~XAudio2Thread();
+	XAudio2Thread();
 
 	virtual void Init();
 	virtual void Quit();

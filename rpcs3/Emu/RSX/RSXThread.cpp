@@ -4,18 +4,19 @@
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "Emu/RSX/GSManager.h"
-#include "Emu/RSX/RSXDMA.h"
-#include "Emu/RSX/sysutil_video.h"
+#include "Emu/RSX/GSRender.h"
+#include "Emu/SysCalls/Modules/cellVideoOut.h"
 #include "RSXThread.h"
 
 #include "Emu/SysCalls/Callback.h"
 #include "Emu/SysCalls/CB_FUNC.h"
-#include "Emu/SysCalls/lv2/sys_time.h"
 
 extern "C"
 {
 #include "libswscale/swscale.h"
 }
+
+extern u64 get_system_time();
 
 #define ARGS(x) (x >= count ? OutOfArgsCount(x, cmd, count, args.addr()) : args[x].value())
 #define CMD_DEBUG 0
@@ -30,15 +31,15 @@ u32 GetAddress(u32 offset, u32 location)
 	{
 	case CELL_GCM_LOCATION_LOCAL:
 	{
-		res = (u32)Memory.RSXFBMem.GetStartAddr() + offset;
+		res = 0xC0000000 + offset;
 		break;
 	}
 	case CELL_GCM_LOCATION_MAIN:
 	{
-		res = (u32)Memory.RSXIOMem.RealAddr(offset); // TODO: Error Check?
+		res = RSXIOMem.RealAddr(offset); // TODO: Error Check?
 		if (res == 0)
 		{
-			throw fmt::format("GetAddress(offset=0x%x, location=0x%x): RSXIO memory not mapped", offset, location);
+			throw EXCEPTION("RSXIO memory not mapped (offset=0x%x)", offset);
 		}
 
 		if (Emu.GetGSManager().GetRender().m_strict_ordering[offset >> 20])
@@ -50,7 +51,7 @@ u32 GetAddress(u32 offset, u32 location)
 	}
 	default:
 	{
-		throw fmt::format("GetAddress(offset=0x%x, location=0x%x): invalid location", offset, location);
+		throw EXCEPTION("Invalid location (offset=0x%x, location=0x%x)", offset, location);
 	}
 	}
 
@@ -100,24 +101,24 @@ void RSXVertexData::Load(u32 start, u32 count, u32 baseOffset, u32 baseIndex = 0
 
 		case 2:
 		{
-			const u16* c_src = (const u16*)src;
-			u16* c_dst = (u16*)dst;
-			for (u32 j = 0; j < size; ++j) *c_dst++ = re16(*c_src++);
+			auto c_src = (const be_t<u16>*)src;
+			auto c_dst = (u16*)dst;
+			for (u32 j = 0; j < size; ++j) *c_dst++ = *c_src++;
 			break;
 		}
 
 		case 4:
 		{
-			const u32* c_src = (const u32*)src;
-			u32* c_dst = (u32*)dst;
-			for (u32 j = 0; j < size; ++j) *c_dst++ = re32(*c_src++);
+			auto c_src = (const be_t<u32>*)src;
+			auto c_dst = (u32*)dst;
+			for (u32 j = 0; j < size; ++j) *c_dst++ = *c_src++;
 			break;
 		}
 		}
 	}
 }
 
-u32 RSXVertexData::GetTypeSize()
+u32 RSXVertexData::GetTypeSize() const
 {
 	switch (type)
 	{
@@ -140,7 +141,7 @@ u32 RSXThread::OutOfArgsCount(const uint x, const u32 cmd, const u32 count, cons
 	auto args = vm::ptr<u32>::make(args_addr);
 	std::string debug = GetMethodName(cmd);
 	debug += "(";
-	for (u32 i = 0; i < count; ++i) debug += (i ? ", " : "") + fmt::Format("0x%x", ARGS(i));
+	for (u32 i = 0; i < count; ++i) debug += (i ? ", " : "") + fmt::format("0x%x", ARGS(i));
 	debug += ")";
 	LOG_NOTICE(RSX, "OutOfArgsCount(x=%d, count=%d): %s", x, count, debug.c_str());
 
@@ -173,7 +174,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 #if	CMD_DEBUG
 	std::string debug = GetMethodName(cmd);
 	debug += "(";
-	for (u32 i = 0; i < count; ++i) debug += (i ? ", " : "") + fmt::Format("0x%x", ARGS(i));
+	for (u32 i = 0; i < count; ++i) debug += (i ? ", " : "") + fmt::format("0x%x", ARGS(i));
 	debug += ")";
 	LOG_NOTICE(RSX, debug);
 #endif
@@ -187,7 +188,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	// NV406E
 	case NV406E_SET_REFERENCE:
 	{
-		m_ctrl->ref.exchange(be_t<u32>::make(ARGS(0)));
+		m_ctrl->ref.exchange(ARGS(0));
 		break;
 	}
 
@@ -248,14 +249,15 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_read_buffer = true;
 		m_flip_status = 0;
 
-		if (m_flip_handler)
+		if (auto cb = m_flip_handler)
 		{
-			auto cb = m_flip_handler;
-			Emu.GetCallbackManager().Async([cb](PPUThread& CPU)
+			Emu.GetCallbackManager().Async([=](CPUThread& cpu)
 			{
-				cb(CPU, 1);
+				cb(static_cast<PPUThread&>(cpu), 1);
 			});
 		}
+
+		m_sem_flip.post_and_wait();
 
 		auto sync = [&]()
 		{
@@ -342,7 +344,22 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 
 	case_range(16, NV4097_SET_TEX_COORD_CONTROL, 4);
 	{
-		LOG_WARNING(RSX, "TODO: NV4097_SET_TEX_COORD_CONTROL");
+		const u32 a0 = ARGS(0);
+		u8 texMask2D = a0 & 1;
+		u8 texMaskCentroid = (a0 >> 4) & 1;
+		LOG_WARNING(RSX, "TODO: NV4097_SET_TEX_COORD_CONTROL(texMask2D=%d, texMaskCentroid=%d)", texMask2D, texMaskCentroid);
+		break;
+	}
+
+	case_range(16, NV4097_SET_TEXTURE_CONTROL2, 4);
+	{
+		LOG_WARNING(RSX, "TODO: NV4097_SET_TEXTURE_CONTROL2");
+		const u32 a0 = ARGS(0);
+		// TODO: Use these
+		u8 unknown = (a0 >> 8) & 0xFF;
+		u8 iso = (a0 >> 6) & 1;
+		u8 aniso = (a0 >> 7) & 1;
+		u8 slope = a0 & 0x1F;
 		break;
 	}
 
@@ -510,6 +527,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_color_mask_r = a0 & 0x0010000 ? true : false;
 		m_color_mask_g = a0 & 0x0000100 ? true : false;
 		m_color_mask_b = a0 & 0x0000001 ? true : false;
+		notifyRasterizerStateChange();
 		break;
 	}
 
@@ -555,12 +573,14 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case NV4097_SET_CULL_FACE_ENABLE:
 	{
 		m_set_cull_face = ARGS(0) ? true : false;
+		notifyRasterizerStateChange();
 		break;
 	}
 
 	case NV4097_SET_CULL_FACE:
 	{
 		m_cull_face = ARGS(0);
+		notifyRasterizerStateChange();
 		break;
 	}
 
@@ -568,6 +588,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case NV4097_SET_FRONT_FACE:
 	{
 		m_front_face = ARGS(0);
+		notifyRasterizerStateChange();
 		break;
 	}
 
@@ -575,6 +596,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case NV4097_SET_BLEND_ENABLE:
 	{
 		m_set_blend = ARGS(0) ? true : false;
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -583,6 +605,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_set_blend_mrt1 = ARGS(0) & 0x02 ? true : false;
 		m_set_blend_mrt2 = ARGS(0) & 0x04 ? true : false;
 		m_set_blend_mrt3 = ARGS(0) & 0x08 ? true : false;
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -598,6 +621,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 			m_blend_dfactor_rgb = ARGS(1) & 0xffff;
 			m_blend_dfactor_alpha = ARGS(1) >> 16;
 		}
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -606,6 +630,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_set_blend_dfactor = true;
 		m_blend_dfactor_rgb = ARGS(0) & 0xffff;
 		m_blend_dfactor_alpha = ARGS(0) >> 16;
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -616,6 +641,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_blend_color_g = (ARGS(0) >> 8) & 0xff;
 		m_blend_color_b = (ARGS(0) >> 16) & 0xff;
 		m_blend_color_a = (ARGS(0) >> 24) & 0xff;
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -633,6 +659,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_set_blend_equation = true;
 		m_blend_equation_rgb = ARGS(0) & 0xffff;
 		m_blend_equation_alpha = ARGS(0) >> 16;
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -745,6 +772,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_depth_func = true;
 		m_depth_func = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -752,6 +780,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_depth_mask = true;
 		m_depth_mask = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -892,7 +921,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		if (u32 value = ARGS(0))
 		{
-			LOG_WARNING(RSX, "TODO: NNV4097_INLINE_ARRAY: 0x%x", value);
+			LOG_WARNING(RSX, "TODO: NV4097_INLINE_ARRAY: 0x%x", value);
 		}
 		break;
 	}
@@ -1035,6 +1064,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_cur_fragment_prog->offset = a0 & ~0x3;
 		m_cur_fragment_prog->addr = GetAddress(m_cur_fragment_prog->offset, (a0 & 0x3) - 1);
 		m_cur_fragment_prog->ctrl = 0x40;
+		notifyProgramChange();
 		break;
 	}
 
@@ -1084,6 +1114,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 				LOG_WARNING(RSX, "NV4097_SET_TRANSFORM_PROGRAM_LOAD: start = %d", start);
 			}
 		}
+		notifyProgramChange();
 		break;
 	}
 
@@ -1111,6 +1142,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		{
 			m_cur_vertex_prog->data.push_back(ARGS(i));
 		}
+		notifyProgramChange();
 		break;
 	}
 
@@ -1203,12 +1235,14 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case NV4097_SET_LOGIC_OP_ENABLE:
 	{
 		m_set_logic_op = ARGS(0) ? true : false;
+		notifyBlendStateChange();
 		break;
 	}
 
 	case NV4097_SET_LOGIC_OP:
 	{
 		m_logic_op = ARGS(0);
+		notifyBlendStateChange();
 		break;
 	}
 
@@ -1223,6 +1257,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case NV4097_SET_STENCIL_TEST_ENABLE:
 	{
 		m_set_stencil_test = ARGS(0) ? true : false;
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1242,6 +1277,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_stencil_mask = true;
 		m_stencil_mask = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1261,6 +1297,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 				m_stencil_func_mask = ARGS(2);
 			}
 		}
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1268,6 +1305,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_stencil_func_ref = true;
 		m_stencil_func_ref = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1275,6 +1313,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_stencil_func_mask = true;
 		m_stencil_func_mask = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1294,6 +1333,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 				m_stencil_zpass = ARGS(2);
 			}
 		}
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1301,6 +1341,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_back_stencil_mask = true;
 		m_back_stencil_mask = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1320,6 +1361,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 				m_back_stencil_func_mask = ARGS(2);
 			}
 		}
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1327,6 +1369,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_back_stencil_func_ref = true;
 		m_back_stencil_func_ref = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1334,6 +1377,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	{
 		m_set_back_stencil_func_mask = true;
 		m_back_stencil_func_mask = ARGS(0);
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1353,6 +1397,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 				m_back_stencil_zpass = ARGS(2);
 			}
 		}
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -1467,7 +1512,6 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		m_height_scale = (float)res.height / m_height * 2.0f;
 		m_width = (u32)res.width;
 		m_height = (u32)res.height;
-
 		break;
 	}
 
@@ -1729,6 +1773,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 
 		m_set_depth_test = a0 & 0x1 ? true : false;
 		m_set_stencil_test = a0 & 0x2 ? true : false;
+		notifyDepthStencilStateChange();
 		break;
 	}
 
@@ -2293,11 +2338,19 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 	case GCM_SET_USER_COMMAND:
 	{
 		const u32 cause = ARGS(0);
-		auto cb = m_user_handler;
-		Emu.GetCallbackManager().Async([cb, cause](PPUThread& CPU)
+
+		if (auto cb = m_user_handler)
 		{
-			cb(CPU, cause);
-		});
+			Emu.GetCallbackManager().Async([=](CPUThread& cpu)
+			{
+				cb(static_cast<PPUThread&>(cpu), cause);
+			});
+		}
+		else
+		{
+			throw EXCEPTION("User handler not set");
+		}
+		
 		break;
 	}
 
@@ -2397,7 +2450,7 @@ void RSXThread::DoCmd(const u32 fcmd, const u32 cmd, const u32 args_addr, const 
 		log += "(";
 		for (u32 i = 0; i < count; ++i)
 		{
-			log += (i ? ", " : "") + fmt::Format("0x%x", ARGS(i));
+			log += (i ? ", " : "") + fmt::format("0x%x", ARGS(i));
 		}
 		log += ")";
 		LOG_ERROR(RSX, "TODO: %s", log.c_str());
@@ -2443,23 +2496,25 @@ void RSXThread::Task()
 
 	m_last_flip_time = get_system_time() - 1000000;
 
-	thread_t vblank("VBlank thread", true /* autojoin */, [this]()
+	autojoin_thread_t vblank(WRAP_EXPR("VBlank Thread"), [this]()
 	{
 		const u64 start_time = get_system_time();
 
 		m_vblank_count = 0;
 
-		while (!TestDestroy() && !Emu.IsStopped())
+		while (joinable())
 		{
+			CHECK_EMU_STATUS;
+
 			if (get_system_time() - start_time > m_vblank_count * 1000000 / 60)
 			{
 				m_vblank_count++;
 
 				if (auto cb = m_vblank_handler)
 				{
-					Emu.GetCallbackManager().Async([=](PPUThread& CPU)
+					Emu.GetCallbackManager().Async([=](CPUThread& cpu)
 					{
-						cb(CPU, 1);
+						cb(static_cast<PPUThread&>(cpu), 1);
 					});
 				}
 			}
@@ -2470,30 +2525,17 @@ void RSXThread::Task()
 		}
 	});
 
-	while (!TestDestroy()) try
+	while (joinable() && !Emu.IsStopped())
 	{
-		if (Emu.IsStopped())
-		{
-			LOG_WARNING(RSX, "RSX thread aborted");
-			break;
-		}
 		std::lock_guard<std::mutex> lock(m_cs_main);
 
 		inc = 1;
 
-		u32 get = m_ctrl->get.read_sync();
-		u32 put = m_ctrl->put.read_sync();
+		u32 put = m_ctrl->put.load();
+		u32 get = m_ctrl->get.load();
 
 		if (put == get || !Emu.IsRunning())
 		{
-			if (put == get)
-			{
-				if (m_flip_status == 0)
-					m_sem_flip.post_and_wait();
-
-				m_sem_flush.post_and_wait();
-			}
-
 			std::this_thread::sleep_for(std::chrono::milliseconds(1)); // hack
 			continue;
 		}
@@ -2510,7 +2552,7 @@ void RSXThread::Task()
 		{
 			u32 offs = cmd & 0x1fffffff;
 			//LOG_WARNING(RSX, "rsx jump(0x%x) #addr=0x%x, cmd=0x%x, get=0x%x, put=0x%x", offs, m_ioAddress + get, cmd, get, put);
-			m_ctrl->get.exchange(be_t<u32>::make(offs));
+			m_ctrl->get.exchange(offs);
 			continue;
 		}
 		if (cmd & CELL_GCM_METHOD_FLAG_CALL)
@@ -2518,7 +2560,7 @@ void RSXThread::Task()
 			m_call_stack.push(get + 4);
 			u32 offs = cmd & ~3;
 			//LOG_WARNING(RSX, "rsx call(0x%x) #0x%x - 0x%x", offs, cmd, get);
-			m_ctrl->get.exchange(be_t<u32>::make(offs));
+			m_ctrl->get.exchange(offs);
 			continue;
 		}
 		if (cmd == CELL_GCM_METHOD_FLAG_RETURN)
@@ -2526,7 +2568,7 @@ void RSXThread::Task()
 			u32 get = m_call_stack.top();
 			m_call_stack.pop();
 			//LOG_WARNING(RSX, "rsx return(0x%x)", get);
-			m_ctrl->get.exchange(be_t<u32>::make(get));
+			m_ctrl->get.exchange(get);
 			continue;
 		}
 		if (cmd & CELL_GCM_METHOD_FLAG_NON_INCREMENT)
@@ -2537,14 +2579,11 @@ void RSXThread::Task()
 
 		if (cmd == 0) //nop
 		{
-			m_ctrl->get.atomic_op([](be_t<u32>& value)
-			{
-				value += 4;
-			});
+			m_ctrl->get += 4;
 			continue;
 		}
 
-		auto args = vm::ptr<u32>::make((u32)Memory.RSXIOMem.RealAddr(get + 4));
+		auto args = vm::ptr<u32>::make((u32)RSXIOMem.RealAddr(get + 4));
 
 		for (u32 i = 0; i < count; i++)
 		{
@@ -2553,23 +2592,8 @@ void RSXThread::Task()
 
 		DoCmd(cmd, cmd & 0x3ffff, args.addr(), count);
 
-		m_ctrl->get.atomic_op([count](be_t<u32>& value)
-		{
-			value += (count + 1) * 4;
-		});
+		m_ctrl->get += (count + 1) * 4;
 	}
-	catch (const std::string& e)
-	{
-		LOG_ERROR(RSX, "Exception: %s", e.c_str());
-		Emu.Pause();
-	}
-	catch (const char* e)
-	{
-		LOG_ERROR(RSX, "Exception: %s", e);
-		Emu.Pause();
-	}
-
-	LOG_NOTICE(RSX, "RSX thread ended");
 
 	OnExitThread();
 }
@@ -2589,23 +2613,26 @@ void RSXThread::Init(const u32 ioAddress, const u32 ioSize, const u32 ctrlAddres
 	m_used_gcm_commands.clear();
 
 	OnInit();
-	ThreadBase::Start();
+
+	start(WRAP_EXPR("RSXThread"), WRAP_EXPR(Task()));
 }
 
 u32 RSXThread::ReadIO32(u32 addr)
 {
 	u32 value;
-	if (!Memory.RSXIOMem.Read32(addr, &value))
+
+	if (!RSXIOMem.Read32(addr, &value))
 	{
-		throw fmt::Format("%s(addr=0x%x): RSXIO memory not mapped", __FUNCTION__, addr);
+		throw EXCEPTION("RSXIO memory not mapped (addr=0x%x)", addr);
 	}
+
 	return value;
 }
 
 void RSXThread::WriteIO32(u32 addr, u32 value)
 {
-	if (!Memory.RSXIOMem.Write32(addr, value))
+	if (!RSXIOMem.Write32(addr, value))
 	{
-		throw fmt::Format("%s(addr=0x%x): RSXIO memory not mapped", __FUNCTION__, addr);
+		throw EXCEPTION("RSXIO memory not mapped (addr=0x%x)", addr);
 	}
 }

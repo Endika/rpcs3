@@ -1,7 +1,9 @@
 #include "stdafx_gui.h"
+#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "GLGSFrame.h"
+#include "D3DGSFrame.h"
 #include "Utilities/Timer.h"
 
 GLGSFrame::GLGSFrame()

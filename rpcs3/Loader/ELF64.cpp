@@ -4,19 +4,17 @@
 #include "Emu/FS/vfsFile.h"
 #include "Emu/FS/vfsDir.h"
 #include "Emu/Memory/Memory.h"
+#include "Emu/IdManager.h"
 #include "Emu/System.h"
 #include "Emu/SysCalls/SysCalls.h"
+#include "Emu/SysCalls/Modules.h"
 #include "Emu/SysCalls/ModuleManager.h"
 #include "Emu/SysCalls/lv2/sys_prx.h"
 #include "Emu/Cell/PPUInstrTable.h"
-#include "Emu/CPU/CPUThreadManager.h"
 #include "ELF64.h"
 #include "Ini.h"
 
 using namespace PPU_instr;
-
-extern void initialize_ppu_exec_map();
-extern void fill_ppu_exec_map(u32 addr, u32 size);
 
 namespace loader
 {
@@ -116,7 +114,7 @@ namespace loader
 							return loading_error;
 						}
 
-						segment.initial_addr.set(phdr.p_vaddr.addr());
+						segment.initial_addr = phdr.p_vaddr;
 						LOG_WARNING(LOADER, "segment addr=0x%x, initial addr = 0x%x", segment.begin.addr(), segment.initial_addr.addr());
 
 						if (phdr.p_filesz)
@@ -150,7 +148,7 @@ namespace loader
 									char name[27];
 									m_stream->Seek(handler::get_stream_offset() + phdr.p_offset + lib.name_addr);
 									m_stream->Read(name, sizeof(name));
-									modulename = std::string(name);
+									modulename = name;
 									LOG_WARNING(LOADER, "**** Exported: %s", name);
 								}
 
@@ -187,7 +185,7 @@ namespace loader
 									char name[27];
 									m_stream->Seek(handler::get_stream_offset() + phdr.p_offset + lib.name_addr);
 									m_stream->Read(name, sizeof(name));
-									modulename = std::string(name);
+									modulename = name;
 									LOG_WARNING(LOADER, "**** Imported: %s", name);
 								}
 
@@ -332,6 +330,14 @@ namespace loader
 					continue;
 				}
 
+				if (Ini.LoadLibLv2.GetValue())
+				{
+					if (module->name != "liblv2.sprx")
+					{
+						continue;
+					}
+				}
+
 				elf64 sprx_handler;
 
 				vfsFile fsprx(lle_dir.GetPath() + "/" + module->name);
@@ -342,18 +348,18 @@ namespace loader
 
 					if (sprx_handler.is_sprx())
 					{
-						IniEntry<bool> load_lib;
-						load_lib.Init(sprx_handler.sprx_get_module_name(), "LLE");
+						if (!Ini.LoadLibLv2.GetValue())
+						{
+							IniEntry<bool> load_lib;
+							load_lib.Init(sprx_handler.sprx_get_module_name(), "LLE");
 
-						if (!load_lib.LoadValue(false))
-						{
-							LOG_WARNING(LOADER, "Skipped LLE library '%s'", sprx_handler.sprx_get_module_name().c_str());
-							continue;
+							if (!load_lib.LoadValue(false))
+							{
+								continue;
+							}
 						}
-						else
-						{
-							LOG_WARNING(LOADER, "Loading LLE library '%s'", sprx_handler.sprx_get_module_name().c_str());
-						}
+
+						LOG_WARNING(LOADER, "Loading LLE library '%s'", sprx_handler.sprx_get_module_name().c_str());
 
 						sprx_info info;
 						sprx_handler.load_sprx(info);
@@ -364,7 +370,7 @@ namespace loader
 							{
 								for (auto &e : m.second.exports)
 								{
-									auto code = vm::ptr<const u32>::make(vm::check_addr(e.second, 8) ? vm::read32(e.second) : 0);
+									auto code = vm::cptr<u32>::make(vm::check_addr(e.second, 8) ? vm::read32(e.second).value() : 0);
 
 									bool is_empty = !code || (code[0] == 0x38600000 && code[1] == BLR());
 
@@ -416,7 +422,7 @@ namespace loader
 
 							if (!module)
 							{
-								LOG_WARNING(LOADER, "Unknown module '%s' in '%s' library", m.first.c_str(), info.name.c_str());
+								LOG_ERROR(LOADER, "Unknown module '%s' in '%s' library", m.first.c_str(), info.name.c_str());
 							}
 
 							for (auto& f : m.second.exports)
@@ -463,7 +469,7 @@ namespace loader
 
 								if (!func)
 								{
-									LOG_ERROR(LOADER, "Unimplemented function '%s' (0x%x)", SysCalls::GetFuncName(nid), addr);
+									LOG_ERROR(LOADER, "Unknown function '%s' (0x%x)", SysCalls::GetFuncName(nid), addr);
 
 									index = add_ppu_func(ModuleFunc(nid, 0, module, nullptr, nullptr));
 								}
@@ -487,7 +493,7 @@ namespace loader
 				return res;
 
 			//initialize process
-			auto rsx_callback_data = vm::ptr<u32>::make(Memory.MainMem.AllocAlign(4 * 4));
+			auto rsx_callback_data = vm::ptr<u32>::make(vm::alloc(4 * 4, vm::main));
 			*rsx_callback_data++ = (rsx_callback_data + 1).addr();
 			Emu.SetRSXCallback(rsx_callback_data.addr());
 
@@ -495,7 +501,7 @@ namespace loader
 			rsx_callback_data[1] = SC(0);
 			rsx_callback_data[2] = BLR();
 
-			auto ppu_thr_stop_data = vm::ptr<u32>::make(Memory.MainMem.AllocAlign(2 * 4));
+			auto ppu_thr_stop_data = vm::ptr<u32>::make(vm::alloc(2 * 4, vm::main));
 			ppu_thr_stop_data[0] = SC(3);
 			ppu_thr_stop_data[1] = BLR();
 			Emu.SetCPUThreadStop(ppu_thr_stop_data.addr());
@@ -549,20 +555,21 @@ namespace loader
 			// branch to initialization
 			make_branch(entry, m_ehdr.e_entry);
 
+			const auto decoder_cache = fxm::make<ppu_decoder_cache_t>();
+
+			for (u32 page = 0; page < 0x20000000; page += 4096)
+			{
+				// TODO: scan only executable areas
+				if (vm::check_addr(page, 4096))
+				{
+					decoder_cache->initialize(page, 4096);
+				}
+			}
+
 			ppu_thread main_thread(OPD.addr(), "main_thread");
 
 			main_thread.args({ Emu.GetPath()/*, "-emu"*/ }).run();
 			main_thread.gpr(11, OPD.addr()).gpr(12, Emu.GetMallocPageSize());
-
-			initialize_ppu_exec_map();
-
-			for (u32 page = 0; page < 0x20000000; page += 4096)
-			{
-				if (vm::check_addr(page, 4096))
-				{
-					fill_ppu_exec_map(page, 4096);
-				}
-			}
 
 			return ok;
 		}
@@ -577,7 +584,7 @@ namespace loader
 				{
 					if (phdr.p_memsz)
 					{
-						if (!vm::alloc(phdr.p_vaddr.addr(), phdr.p_memsz, vm::main))
+						if (!vm::falloc(phdr.p_vaddr.addr(), phdr.p_memsz, vm::main))
 						{
 							LOG_ERROR(LOADER, "%s(): AllocFixed(0x%llx, 0x%llx) failed", __FUNCTION__, phdr.p_vaddr.addr(), phdr.p_memsz);
 
@@ -606,7 +613,11 @@ namespace loader
 						{
 							m_stream->Seek(handler::get_stream_offset() + phdr.p_offset);
 							m_stream->Read(phdr.p_vaddr.get_ptr(), phdr.p_filesz);
-							hook_ppu_funcs(vm::ptr<u32>::make(phdr.p_vaddr.addr()), phdr.p_filesz / 4);
+
+							if (Ini.HookStFunc.GetValue())
+							{
+								hook_ppu_funcs(vm::static_ptr_cast<be_t<u32>>(phdr.p_vaddr), phdr.p_filesz / 4);
+							}
 						}
 					}
 					break;
@@ -622,29 +633,39 @@ namespace loader
 				{
 					if (phdr.p_filesz)
 					{
-						const sys_process_param& proc_param = *(sys_process_param*)phdr.p_vaddr.get_ptr();
+						struct process_param_t
+						{
+							be_t<u32> size;
+							be_t<u32> magic;
+							be_t<u32> version;
+							be_t<u32> sdk_version;
+							be_t<s32> primary_prio;
+							be_t<u32> primary_stacksize;
+							be_t<u32> malloc_pagesize;
+							be_t<u32> ppc_seg;
+							//be_t<u32> crash_dump_param_addr;
+						};
 
-						if (proc_param.size < sizeof(sys_process_param))
+						const auto& info = *(process_param_t*)phdr.p_vaddr.get_ptr();
+
+						if (info.size < sizeof(process_param_t))
 						{
-							LOG_WARNING(LOADER, "Bad process_param size! [0x%x : 0x%x]", proc_param.size, sizeof(sys_process_param));
+							LOG_WARNING(LOADER, "Bad process_param size! [0x%x : 0x%x]", info.size, sizeof32(process_param_t));
 						}
-						if (proc_param.magic != 0x13bcc5f6)
+						if (info.magic != 0x13bcc5f6)
 						{
-							LOG_ERROR(LOADER, "Bad process_param magic! [0x%x]", proc_param.magic);
+							LOG_ERROR(LOADER, "Bad process_param magic! [0x%x]", info.magic);
 						}
 						else
 						{
-							sys_process_param_info& info = Emu.GetInfo().GetProcParam();
-							/*
 							LOG_NOTICE(LOADER, "*** sdk version: 0x%x", info.sdk_version);
 							LOG_NOTICE(LOADER, "*** primary prio: %d", info.primary_prio);
 							LOG_NOTICE(LOADER, "*** primary stacksize: 0x%x", info.primary_stacksize);
 							LOG_NOTICE(LOADER, "*** malloc pagesize: 0x%x", info.malloc_pagesize);
 							LOG_NOTICE(LOADER, "*** ppc seg: 0x%x", info.ppc_seg);
 							//LOG_NOTICE(LOADER, "*** crash dump param addr: 0x%x", info.crash_dump_param_addr);
-							*/
 
-							info = proc_param.info;
+							Emu.SetParams(info.sdk_version, info.malloc_pagesize, info.primary_stacksize, info.primary_prio);
 						}
 					}
 					break;
@@ -670,7 +691,7 @@ namespace loader
 
 							if (!module)
 							{
-								LOG_WARNING(LOADER, "Unknown module '%s'", module_name.c_str());
+								LOG_ERROR(LOADER, "Unknown module '%s'", module_name.c_str());
 							}
 
 							for (u32 i = 0; i < stub->s_imports; ++i)
@@ -684,7 +705,7 @@ namespace loader
 
 								if (!func)
 								{
-									LOG_ERROR(LOADER, "Unimplemented function '%s' in '%s' module (0x%x)", SysCalls::GetFuncName(nid), module_name, addr);
+									LOG_ERROR(LOADER, "Unknown function '%s' in '%s' module (0x%x)", SysCalls::GetFuncName(nid), module_name, addr);
 
 									index = add_ppu_func(ModuleFunc(nid, 0, module, nullptr, nullptr));
 								}
@@ -703,6 +724,10 @@ namespace loader
 						}
 					}
 					break;
+				}
+				default:
+				{
+					LOG_ERROR(LOADER, "Unknown phdr type (0x%08x)", phdr.p_type);
 				}
 				}
 			}

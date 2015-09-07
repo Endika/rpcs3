@@ -1,5 +1,7 @@
 #pragma once
 
+namespace vm { using namespace ps3; }
+
 enum
 {
 	CELL_MSGDIALOG_ERROR_PARAM             = 0x8002b301,
@@ -80,11 +82,12 @@ enum : s32
 	CELL_MSGDIALOG_BUTTON_ESCAPE  = 3,
 };
 
-typedef void(CellMsgDialogCallback)(s32 buttonType, vm::ptr<void> userData);
+using CellMsgDialogCallback = void(s32 buttonType, vm::ptr<void> userData);
 
 enum MsgDialogState
 {
 	msgDialogNone,
+	msgDialogInit,
 	msgDialogOpen,
 	msgDialogClose,
 	msgDialogAbort,
@@ -94,9 +97,9 @@ struct MsgDialogInstance
 {
 	std::atomic<MsgDialogState> state;
 
-	s32 status = 0;
-	u64 wait_until = 0;
-	u32 progress_bar_count = 0;
+	s32 status;
+	u64 wait_until;
+	u32 progress_bar_count;
 
 	MsgDialogInstance();
 	virtual ~MsgDialogInstance() = default;

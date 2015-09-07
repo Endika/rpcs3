@@ -1,10 +1,5 @@
 #pragma once
 
-class SPUThread;
-
-struct SPUContext
+struct spu_context_t
 {
-	u128 gpr[128];
-
-	SPUThread& thread;
 };

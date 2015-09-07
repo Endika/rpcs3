@@ -1,11 +1,15 @@
 #include "stdafx.h"
 #include "rpcs3/Ini.h"
+#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
-#include "sysutil_video.h"
+#include "Emu/SysCalls/Modules/cellVideoOut.h"
 
 #include "GSManager.h"
 #include "Null/NullGSRender.h"
 #include "GL/GLGSRender.h"
+#ifdef WIN32
+#include "D3D12/D3D12GSRender.h"
+#endif
 
 void GSInfo::Init()
 {
@@ -33,6 +37,9 @@ void GSManager::Init()
 	default:
 	case 0: m_render = new NullGSRender(); break;
 	case 1: m_render = new GLGSRender(); break;
+#if defined(DX12_SUPPORT)
+	case 2: m_render = new D3D12GSRender(); break;
+#endif
 	}
 	//m_render->Init(GetInfo().outresolution.width, GetInfo().outresolution.height);
 }

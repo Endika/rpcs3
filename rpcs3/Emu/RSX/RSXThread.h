@@ -5,7 +5,7 @@
 #include "RSXFragmentProgram.h"
 
 #include <stack>
-#include "Utilities/SSemaphore.h"
+#include "Utilities/Semaphore.h"
 #include "Utilities/Thread.h"
 #include "Utilities/Timer.h"
 
@@ -37,7 +37,7 @@ struct RSXVertexData
 	bool IsEnabled() const { return size > 0; }
 	void Load(u32 start, u32 count, u32 baseOffset, u32 baseIndex);
 
-	u32 GetTypeSize();
+	u32 GetTypeSize() const;
 };
 
 struct RSXIndexArrayData
@@ -90,7 +90,7 @@ struct RSXTransformConstant
 	}
 };
 
-class RSXThread : public ThreadBase
+class RSXThread : protected named_thread_t
 {
 public:
 	static const uint m_textures_count = 16;
@@ -155,8 +155,7 @@ public:
 
 public:
 	std::mutex m_cs_main;
-	SSemaphore m_sem_flush;
-	SSemaphore m_sem_flip;
+	semaphore_t m_sem_flip;
 	u64 m_last_flip_time;
 	vm::ptr<void(u32)> m_flip_handler;
 	vm::ptr<void(u32)> m_user_handler;
@@ -449,8 +448,7 @@ public:
 
 protected:
 	RSXThread()
-		: ThreadBase("RSXThread")
-		, m_ctrl(nullptr)
+		: m_ctrl(nullptr)
 		, m_shader_ctrl(0x40)
 		, m_flip_status(0)
 		, m_flip_mode(CELL_GCM_DISPLAY_VSYNC)
@@ -551,7 +549,9 @@ protected:
 		Reset();
 	}
 
-	virtual ~RSXThread() {}
+	virtual ~RSXThread() override
+	{
+	}
 
 	void Reset()
 	{
@@ -685,6 +685,27 @@ protected:
 	* waiting.
 	*/
 	virtual void semaphorePFIFOAcquire(u32 offset, u32 value) = 0;
+	/**
+	 * Called when vertex or fragment shader changes.
+	 * Backend can reuse same program if no change has been notified.
+	 */
+	virtual void notifyProgramChange() = 0;
+	/**
+	* Called when blend state changes.
+	* Backend can reuse same program if no change has been notified.
+	*/
+	virtual void notifyBlendStateChange() = 0;
+	/**
+	* Called when depth stencil state changes.
+	* Backend can reuse same program if no change has been notified.
+	*/
+	virtual void notifyDepthStencilStateChange() = 0;
+	/**
+	* Called when rasterizer state changes.
+	* Rasterizer state includes culling, color masking
+	* Backend can reuse same program if no change has been notified.
+	*/
+	virtual void notifyRasterizerStateChange() = 0;
 
 	void LoadVertexData(u32 first, u32 count)
 	{

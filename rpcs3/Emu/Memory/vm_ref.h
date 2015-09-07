@@ -2,10 +2,12 @@
 
 namespace vm
 {
+	template<typename T, typename AT> struct _ptr_base;
+
 	template<typename T, typename AT = u32>
 	struct _ref_base
 	{
-		AT m_addr;
+		AT m_addr; // don't access directly
 
 		static_assert(!std::is_pointer<T>::value, "vm::_ref_base<> error: invalid type (pointer)");
 		static_assert(!std::is_reference<T>::value, "vm::_ref_base<> error: invalid type (reference)");
@@ -17,23 +19,23 @@ namespace vm
 			return m_addr;
 		}
 
-		template<typename AT2 = AT> static _ref_base make(const AT2& addr)
+		template<typename AT2 = AT> static std::enable_if_t<std::is_constructible<AT, AT2>::value, _ref_base> make(const AT2& addr)
 		{
-			return{ convert_le_be<AT>(addr) };
+			return{ addr };
 		}
 
 		T& get_ref() const
 		{
-			return vm::get_ref<T>(vm::cast(m_addr));
+			return vm::get_ref<T>(VM_CAST(m_addr));
 		}
 
 		T& priv_ref() const
 		{
-			return vm::priv_ref<T>(vm::cast(m_addr));
+			return vm::priv_ref<T>(VM_CAST(m_addr));
 		}
 
 		// TODO: conversion operator (seems hard to define it correctly)
-		//template<typename CT, typename dummy = std::enable_if_t<std::is_convertible<T, CT>::value || std::is_convertible<to_ne_t<T>, CT>::value>> operator CT() const
+		//template<typename CT, typename = std::enable_if_t<std::is_convertible<T, CT>::value || std::is_convertible<to_ne_t<T>, CT>::value>> operator CT() const
 		//{
 		//	return get_ref();
 		//}
@@ -46,6 +48,12 @@ namespace vm
 		explicit operator T&() const
 		{
 			return get_ref();
+		}
+
+		// convert to vm pointer
+		vm::_ptr_base<T, u32> operator &() const
+		{
+			return{ VM_CAST(m_addr) };
 		}
 
 		// copy assignment operator:
@@ -103,9 +111,6 @@ namespace vm
 		// default reference for PSV HLE structures (LE reference to LE data)
 		template<typename T> using lref = lrefl<T>;
 	}
-
-	//PS3 emulation is main now, so lets it be as default
-	using namespace ps3;
 }
 
 // postfix increment operator for vm::_ref_base

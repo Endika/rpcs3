@@ -1,56 +1,35 @@
-
-
-# version format
-version: 0.1.{build}
+version: 1.0.{build}
+os: Visual Studio 2015
+configuration:
+# - Release
+ - ReleaseLLVM
+platform: x64
+clone_folder: c:\rpcs3
+clone_depth: 3
+test: off
 
 branches:
-  only:
-    - appveyorbuild
-  # blacklist
-  #except:
-  #  - gh-pages
+ except:
+   - ppu_recompiler
 
-#---------------------------------#
-#    environment configuration    #
-#---------------------------------#
-
-# clone directory
-clone_folder: c:\projects\rpcs3
-
-platform:
-  - x64
-
-configuration:
-  - Release
-
-install:
-  - cmd: cinst wget -x86
-  - cmd: cinst 7zip.commandline -x86
-  - cmd: git submodule update --init --recursive .\ffmpeg .\asmjit
-  - cmd: wget -q --no-check-certificate https://googledrive.com/host/0B3tDmChwjRbRTTdhaTFOeGN1eEU/wxWidgets.7z -O c:\projects\rpcs3\wxwidgets.7z
-  - cmd: 7z x C:\projects\rpcs3\wxwidgets.7z -oc:\projects\rpcs3\wxWidgets
-  
-build:
+before_build:
+ # until git for win 2.5 release with commit checkout
+ - git submodule update --init ffmpeg asmjit minidx9
+ - 7z x wxWidgets.7z -aos -oC:\rpcs3\wxWidgets > null
+ - if %configuration%==Release (cmake -G "Visual Studio 14 Win64")
+   else (7z x llvmlibs.7z -aos -oC:\rpcs3 > null && cmake -G "Visual Studio 14 Win64" -DLLVM_DIR=C:/rpcs3/llvm_build/share/llvm/cmake)
 
 build_script:
-  - msbuild /m /p:Configuration=Release rpcs3_buildbot.sln
-  
-after_build:
-  - cmd: package.bat
+ - cmake --build . --config Release -- /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
+
+install:
+ - ps: Start-FileDownload 'https://402331b94f8e4b87ae2ef4677347f7956cf3861f.googledrive.com/host/0B6v_qtb9hkicfmt0NG0wTTRtUmF4X3VTQk5Oc2JidEVKVnUteDA1dXdrYlNsVW9kREpsSHc/wxWidgets.7z'
+ - ps: Start-FileDownload 'https://402331b94f8e4b87ae2ef4677347f7956cf3861f.googledrive.com/host/0B6v_qtb9hkicfmt0NG0wTTRtUmF4X3VTQk5Oc2JidEVKVnUteDA1dXdrYlNsVW9kREpsSHc/llvmlibs.7z'
+ - set WXWIN=C:\rpcs3\wxWidgets
+ - set OPENALDIR=C:\rpcs3\OpenAL
+ - set PATH=C:\Program Files (x86)\MSBuild\14.0\Bin;C:\wxWidgets;%PATH%
+ - set COMMIT_SHA=%APPVEYOR_REPO_COMMIT:~0,8%
 
 artifacts:
-  - path: .\rpcs3*.7z
-
-deploy: OFF
-#  - provider: FTP
-#    server: 
-#      secure: kZT7rsbEPGQ0fC2GFRBGfL2vPwUgih2JkwjbSuw00T8=
-#    username:
-#      secure: YJzwsi4wfSezFLqaB9uiww==
-#    password:
-#      secure: EQ3xa2LoRgelAdE57+qakQ==
-#    folder: .\rpcs3\
-#    enable_ssl: false
-  
-test: OFF
-
+ - path: bin
+   name: rpcs3-$(configuration)-$(COMMIT_SHA)

@@ -13,7 +13,7 @@ extern "C"
 
 extern Module cellVpost;
 
-s32 cellVpostQueryAttr(vm::ptr<const CellVpostCfgParam> cfgParam, vm::ptr<CellVpostAttr> attr)
+s32 cellVpostQueryAttr(vm::cptr<CellVpostCfgParam> cfgParam, vm::ptr<CellVpostAttr> attr)
 {
 	cellVpost.Warning("cellVpostQueryAttr(cfgParam=*0x%x, attr=*0x%x)", cfgParam, attr);
 
@@ -27,21 +27,21 @@ s32 cellVpostQueryAttr(vm::ptr<const CellVpostCfgParam> cfgParam, vm::ptr<CellVp
 	return CELL_OK;
 }
 
-s32 cellVpostOpen(vm::ptr<const CellVpostCfgParam> cfgParam, vm::ptr<const CellVpostResource> resource, vm::ptr<u32> handle)
+s32 cellVpostOpen(vm::cptr<CellVpostCfgParam> cfgParam, vm::cptr<CellVpostResource> resource, vm::ptr<u32> handle)
 {
 	cellVpost.Warning("cellVpostOpen(cfgParam=*0x%x, resource=*0x%x, handle=*0x%x)", cfgParam, resource, handle);
 
 	// TODO: check values
-	*handle = Emu.GetIdManager().make<VpostInstance>(cfgParam->outPicFmt == CELL_VPOST_PIC_FMT_OUT_RGBA_ILV);
+	*handle = idm::make<VpostInstance>(cfgParam->outPicFmt == CELL_VPOST_PIC_FMT_OUT_RGBA_ILV);
 	return CELL_OK;
 }
 
-s32 cellVpostOpenEx(vm::ptr<const CellVpostCfgParam> cfgParam, vm::ptr<const CellVpostResourceEx> resource, vm::ptr<u32> handle)
+s32 cellVpostOpenEx(vm::cptr<CellVpostCfgParam> cfgParam, vm::cptr<CellVpostResourceEx> resource, vm::ptr<u32> handle)
 {
 	cellVpost.Warning("cellVpostOpenEx(cfgParam=*0x%x, resource=*0x%x, handle=*0x%x)", cfgParam, resource, handle);
 
 	// TODO: check values
-	*handle = Emu.GetIdManager().make<VpostInstance>(cfgParam->outPicFmt == CELL_VPOST_PIC_FMT_OUT_RGBA_ILV);
+	*handle = idm::make<VpostInstance>(cfgParam->outPicFmt == CELL_VPOST_PIC_FMT_OUT_RGBA_ILV);
 	return CELL_OK;
 }
 
@@ -49,22 +49,22 @@ s32 cellVpostClose(u32 handle)
 {
 	cellVpost.Warning("cellVpostClose(handle=0x%x)", handle);
 
-	const auto vpost = Emu.GetIdManager().get<VpostInstance>(handle);
+	const auto vpost = idm::get<VpostInstance>(handle);
 
 	if (!vpost)
 	{
 		return CELL_VPOST_ERROR_C_ARG_HDL_INVALID;
 	}
 
-	Emu.GetIdManager().remove<VpostInstance>(handle);	
+	idm::remove<VpostInstance>(handle);	
 	return CELL_OK;
 }
 
-s32 cellVpostExec(u32 handle, vm::ptr<const u8> inPicBuff, vm::ptr<const CellVpostCtrlParam> ctrlParam, vm::ptr<u8> outPicBuff, vm::ptr<CellVpostPictureInfo> picInfo)
+s32 cellVpostExec(u32 handle, vm::cptr<u8> inPicBuff, vm::cptr<CellVpostCtrlParam> ctrlParam, vm::ptr<u8> outPicBuff, vm::ptr<CellVpostPictureInfo> picInfo)
 {
 	cellVpost.Log("cellVpostExec(handle=0x%x, inPicBuff=*0x%x, ctrlParam=*0x%x, outPicBuff=*0x%x, picInfo=*0x%x)", handle, inPicBuff, ctrlParam, outPicBuff, picInfo);
 
-	const auto vpost = Emu.GetIdManager().get<VpostInstance>(handle);
+	const auto vpost = idm::get<VpostInstance>(handle);
 
 	if (!vpost)
 	{
@@ -76,19 +76,19 @@ s32 cellVpostExec(u32 handle, vm::ptr<const u8> inPicBuff, vm::ptr<const CellVpo
 	u32 ow = ctrlParam->outWidth;
 	u32 oh = ctrlParam->outHeight;
 
-	ctrlParam->inWindow; // ignored
+	//ctrlParam->inWindow; // ignored
 	if (ctrlParam->inWindow.x) cellVpost.Notice("*** inWindow.x = %d", (u32)ctrlParam->inWindow.x);
 	if (ctrlParam->inWindow.y) cellVpost.Notice("*** inWindow.y = %d", (u32)ctrlParam->inWindow.y);
 	if (ctrlParam->inWindow.width != w) cellVpost.Notice("*** inWindow.width = %d", (u32)ctrlParam->inWindow.width);
 	if (ctrlParam->inWindow.height != h) cellVpost.Notice("*** inWindow.height = %d", (u32)ctrlParam->inWindow.height);
-	ctrlParam->outWindow; // ignored
+	//ctrlParam->outWindow; // ignored
 	if (ctrlParam->outWindow.x) cellVpost.Notice("*** outWindow.x = %d", (u32)ctrlParam->outWindow.x);
 	if (ctrlParam->outWindow.y) cellVpost.Notice("*** outWindow.y = %d", (u32)ctrlParam->outWindow.y);
 	if (ctrlParam->outWindow.width != ow) cellVpost.Notice("*** outWindow.width = %d", (u32)ctrlParam->outWindow.width);
 	if (ctrlParam->outWindow.height != oh) cellVpost.Notice("*** outWindow.height = %d", (u32)ctrlParam->outWindow.height);
-	ctrlParam->execType; // ignored
-	ctrlParam->scalerType; // ignored
-	ctrlParam->ipcType; // ignored
+	//ctrlParam->execType; // ignored
+	//ctrlParam->scalerType; // ignored
+	//ctrlParam->ipcType; // ignored
 
 	picInfo->inWidth = w; // copy
 	picInfo->inHeight = h; // copy
@@ -142,6 +142,7 @@ Module cellVpost("cellVpost", []()
 	REG_FUNC(cellVpost, cellVpostQueryAttr);
 	REG_FUNC(cellVpost, cellVpostOpen);
 	REG_FUNC(cellVpost, cellVpostOpenEx);
+	//REG_FUNC(cellVpost, cellVpostOpenExt); // 0x9f1795df
 	REG_FUNC(cellVpost, cellVpostClose);
 	REG_FUNC(cellVpost, cellVpostExec);
 });

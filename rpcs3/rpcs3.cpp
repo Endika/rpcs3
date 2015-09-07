@@ -26,6 +26,7 @@
 #include "Gui/SaveDataDialog.h"
 
 #include "Gui/GLGSFrame.h"
+#include "Gui/D3DGSFrame.h"
 #include <wx/stdpaths.h>
 
 #ifdef _WIN32
@@ -40,8 +41,6 @@ wxDEFINE_EVENT(wxEVT_DBG_COMMAND, wxCommandEvent);
 
 IMPLEMENT_APP(Rpcs3App)
 Rpcs3App* TheApp;
-
-extern std::string simplify_path(const std::string& path, bool is_dir);
 
 extern std::unique_ptr<MsgDialogInstance> g_msg_dialog;
 extern std::unique_ptr<SaveDataDialogInstance> g_savedata_dialog;
@@ -136,6 +135,13 @@ bool Rpcs3App::OnInit()
 	{
 		return new GLGSFrame();
 	});
+
+#if defined(DX12_SUPPORT)
+	SetGetD3DGSFrameCallback([]() ->GSFrameBase2*
+	{
+		return new D3DGSFrame();
+	});
+#endif
 
 	g_msg_dialog.reset(new MsgDialogFrame);
 	g_savedata_dialog.reset(new SaveDataDialogFrame);

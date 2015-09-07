@@ -7,7 +7,6 @@
 #include "Emu/CPU/CPUThreadManager.h"
 #include "Emu/Cell/PPUDecoder.h"
 #include "Emu/Cell/PPUDisAsm.h"
-#include "Emu/Cell/SPUDecoder.h"
 #include "Emu/Cell/SPUDisAsm.h"
 #include "Emu/ARMv7/ARMv7DisAsm.h"
 #include "Emu/ARMv7/ARMv7Decoder.h"
@@ -27,7 +26,6 @@ InterpreterDisAsmFrame::InterpreterDisAsmFrame(wxWindow* parent)
 	, PC(0)
 	, CPU(nullptr)
 	, m_item_count(30)
-	, decoder(nullptr)
 	, disasm(nullptr)
 {
 	wxBoxSizer* s_p_main = new wxBoxSizer(wxVERTICAL);
@@ -108,9 +106,8 @@ void InterpreterDisAsmFrame::UpdateUnitList()
 {
 	m_choice_units->Freeze();
 	m_choice_units->Clear();
-	auto thrs = Emu.GetCPU().GetThreads();
 
-	for (auto& t : thrs)
+	for (auto& t : Emu.GetCPU().GetAllThreads())
 	{
 		m_choice_units->Append(t->GetFName(), t.get());
 	}
@@ -122,19 +119,35 @@ void InterpreterDisAsmFrame::OnSelectUnit(wxCommandEvent& event)
 {
 	CPU = (CPUThread*)event.GetClientData();
 
-	delete decoder;
-	//delete disasm;
-	decoder = nullptr;
+	decoder.reset();
 	disasm = nullptr;
+
+	class SPUDecoder : public CPUDecoder
+	{
+		std::unique_ptr<SPUDisAsm> disasm;
+
+	public:
+		SPUDecoder(SPUDisAsm* disasm)
+			: disasm(disasm)
+		{
+		}
+
+		virtual u32 DecodeMemory(const u32 address) override
+		{
+			disasm->do_disasm(vm::ps3::read32(address));
+
+			return 4;
+		}
+	};
 
 	if(CPU)
 	{
-		switch(CPU->GetType())
+		switch(CPU->get_type())
 		{
 		case CPU_THREAD_PPU:
 		{
 			PPUDisAsm* dis_asm = new PPUDisAsm(CPUDisAsm_InterpreterMode);
-			decoder = new PPUDecoder(dis_asm);
+			decoder = std::make_unique<PPUDecoder>(dis_asm);
 			disasm = dis_asm;
 		}
 		break;
@@ -142,9 +155,9 @@ void InterpreterDisAsmFrame::OnSelectUnit(wxCommandEvent& event)
 		case CPU_THREAD_SPU:
 		case CPU_THREAD_RAW_SPU:
 		{
-			SPUDisAsm& dis_asm = *new SPUDisAsm(CPUDisAsm_InterpreterMode);
-			decoder = new SPUDecoder(dis_asm);
-			disasm = &dis_asm;
+			SPUDisAsm* dis_asm = new SPUDisAsm(CPUDisAsm_InterpreterMode);
+			decoder = std::make_unique<SPUDecoder>(dis_asm);
+			disasm = dis_asm;
 		}
 		break;
 
@@ -248,10 +261,10 @@ void InterpreterDisAsmFrame::ShowAddr(const u64 addr)
 	}
 	else
 	{
-		disasm->offset = vm::get_ptr<u8>(CPU->offset);
+		disasm->offset = vm::get_ptr<u8>(CPU->get_offset());
 		for(uint i=0, count = 4; i<m_item_count; ++i, PC += count)
 		{
-			if(!vm::check_addr(CPU->offset + PC, 4))
+			if(!vm::check_addr(CPU->get_offset() + PC, 4))
 			{
 				m_list->SetItem(i, 0, wxString(IsBreakPoint(PC) ? ">>> " : "    ") + wxString::Format("[%08llx] illegal address", PC));
 				count = 4;
@@ -259,7 +272,7 @@ void InterpreterDisAsmFrame::ShowAddr(const u64 addr)
 			}
 
 			disasm->dump_pc = PC;
-			count = decoder->DecodeMemory(CPU->offset + PC);
+			count = decoder->DecodeMemory(CPU->get_offset() + PC);
 
 			if(IsBreakPoint(PC))
 			{
@@ -272,7 +285,7 @@ void InterpreterDisAsmFrame::ShowAddr(const u64 addr)
 
 			wxColour colour;
 
-			if((!CPU->IsRunning() || !Emu.IsRunning()) && PC == CPU->PC)
+			if(CPU->is_paused() && PC == CPU->get_pc())
 			{
 				colour = wxColour("Green");
 			}
@@ -340,11 +353,9 @@ void InterpreterDisAsmFrame::WriteCallStack()
 		return;
 	}
 
-	const std::string data = CPU->CallStackToString();
-
 	m_calls->Freeze();
 	m_calls->Clear();
-	m_calls->WriteText(fmt::FromUTF8(data));
+	//m_calls->WriteText(fmt::FromUTF8(data));
 	m_calls->Thaw();
 }
 
@@ -366,7 +377,7 @@ void InterpreterDisAsmFrame::HandleCommand(wxCommandEvent& event)
 		break;
 		}
 	}
-	else if(CPU && thr->GetId() == CPU->GetId())
+	else if(CPU && thr->get_id() == CPU->get_id())
 	{
 		switch(event.GetId())
 		{
@@ -456,11 +467,11 @@ void InterpreterDisAsmFrame::Show_Val(wxCommandEvent& WXUNUSED(event))
 
 	diag->SetSizerAndFit( s_panel );
 
-	if(CPU) p_pc->SetValue(wxString::Format("%x", CPU->PC));
+	if(CPU) p_pc->SetValue(wxString::Format("%x", CPU->get_pc()));
 
 	if(diag->ShowModal() == wxID_OK)
 	{
-		unsigned long pc = CPU ? CPU->PC : 0x0;
+		unsigned long pc = CPU ? CPU->get_pc() : 0x0;
 		p_pc->GetValue().ToULong(&pc, 16);
 		Emu.GetMarkedPoints().push_back(pc);
 		remove_markedPC.push_back(Emu.GetMarkedPoints().size()-1);
@@ -470,19 +481,18 @@ void InterpreterDisAsmFrame::Show_Val(wxCommandEvent& WXUNUSED(event))
 
 void InterpreterDisAsmFrame::Show_PC(wxCommandEvent& WXUNUSED(event))
 {
-	if(CPU) ShowAddr(CentrePc(CPU->PC));
+	if(CPU) ShowAddr(CentrePc(CPU->get_pc()));
 }
 
-extern bool dump_enable;
 void InterpreterDisAsmFrame::DoRun(wxCommandEvent& WXUNUSED(event))
 {
 	if(!CPU) return;
 
-	if(CPU->IsPaused()) CPU->Resume();
+	if(CPU->is_paused()) CPU->resume();
 
 	if(!Emu.IsPaused())
 	{
-		CPU->Exec();
+		CPU->exec();
 	}
 
 	//ThreadBase::Start();
@@ -491,12 +501,12 @@ void InterpreterDisAsmFrame::DoRun(wxCommandEvent& WXUNUSED(event))
 void InterpreterDisAsmFrame::DoPause(wxCommandEvent& WXUNUSED(event))
 {
 	//DoUpdate();
-	if(CPU) CPU->Pause();
+	if(CPU) CPU->pause();
 }
 
 void InterpreterDisAsmFrame::DoStep(wxCommandEvent& WXUNUSED(event))
 {
-	if(CPU) CPU->ExecOnce();
+	if(CPU) CPU->step();
 }
 
 void InterpreterDisAsmFrame::InstrKey(wxListEvent& event)
@@ -515,12 +525,12 @@ void InterpreterDisAsmFrame::InstrKey(wxListEvent& event)
 	{
 	case 'E':
 		// TODO:: Syphurith: It is said the InstructionEditorDialog would be immediately destroyed.
-		InstructionEditorDialog(this, pc, CPU, decoder, disasm);
+		InstructionEditorDialog(this, pc, CPU, decoder.get(), disasm);
 		DoUpdate();
 		return;
 	case 'R':
 		// TODO:: Syphurith: Eh Similiar for this one.
-		RegisterEditorDialog(this, pc, CPU, decoder, disasm);
+		RegisterEditorDialog(this, pc, CPU, decoder.get(), disasm);
 		DoUpdate();
 		return;
 	}

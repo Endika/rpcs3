@@ -25,12 +25,14 @@ protected:
 	Ini();
 
 	void Save(const std::string& section, const std::string& key, int value);
+	void Save(const std::string& section, const std::string& key, unsigned int value);
 	void Save(const std::string& section, const std::string& key, bool value);
 	void Save(const std::string& section, const std::string& key, std::pair<int, int> value);
 	void Save(const std::string& section, const std::string& key, const std::string& value);
 	void Save(const std::string& section, const std::string& key, WindowInfo value);
 
 	int Load(const std::string& section, const std::string& key, const int def_value);
+	unsigned int Load(const std::string& section, const std::string& key, const unsigned int def_value);
 	bool Load(const std::string& section, const std::string& key, const bool def_value);
 	std::pair<int, int> Load(const std::string& section, const std::string& key, const std::pair<int, int> def_value);
 	std::string Load(const std::string& section, const std::string& key, const std::string& def_value);
@@ -92,10 +94,17 @@ private:
 public:
 	// Core
 	IniEntry<u8> CPUDecoderMode;
+	IniEntry<bool> LLVMExclusionRange;
+	IniEntry<u32> LLVMMinId;
+	IniEntry<u32> LLVMMaxId;
+	IniEntry<u32> LLVMThreshold;
 	IniEntry<u8> SPUDecoderMode;
+	IniEntry<bool> HookStFunc;
+	IniEntry<bool> LoadLibLv2;
 
 	// Graphics
 	IniEntry<u8> GSRenderMode;
+	IniEntry<u8> GSD3DAdaptater;
 	IniEntry<u8> GSResolution;
 	IniEntry<u8> GSAspectRatio;
 	IniEntry<u8> GSFrameLimit;
@@ -105,6 +114,8 @@ public:
 	IniEntry<bool> GSReadColorBuffer;
 	IniEntry<bool> GSVSyncEnable;
 	IniEntry<bool> GS3DTV;
+	IniEntry<bool> GSDebugOutputEnable;
+	IniEntry<bool> GSOverlay;
 
 	// Audio
 	IniEntry<u8> AudioOutMode;
@@ -146,18 +157,19 @@ public:
 
 	// HLE/Miscs
 	IniEntry<u8>   HLELogLvl;
+	IniEntry<u8>   NETStatus;
+	IniEntry<u8>   NETInterface;
 	IniEntry<bool> HLELogging;
 	IniEntry<bool> RSXLogging;
-	IniEntry<bool> HLEHookStFunc;
 	IniEntry<bool> HLESaveTTY;
 	IniEntry<bool> HLEExitOnStop;
 	IniEntry<bool> HLEAlwaysStart;
 
-	//Auto Pause
+	// Auto Pause
 	IniEntry<bool> DBGAutoPauseSystemCall;
 	IniEntry<bool> DBGAutoPauseFunctionCall;
 
-	//Customed EmulationDir
+	// Custom EmulationDir
 	IniEntry<std::string> SysEmulationDirPath;
 	IniEntry<bool> SysEmulationDirPathEnable;
 
@@ -172,11 +184,18 @@ public:
 		path = DefPath;
 
 		// Core
-		CPUDecoderMode.Init("CPU_DecoderMode", path);
-		SPUDecoderMode.Init("CPU_SPUDecoderMode", path);
+		CPUDecoderMode.Init("CORE_DecoderMode", path);
+		LLVMExclusionRange.Init("LLVM_Exclusion_Range", path);
+		LLVMMinId.Init("LLVM_Min_ID", path);
+		LLVMMaxId.Init("LLVM_Max_ID", path);
+		LLVMThreshold.Init("LLVM_Threshold", path);
+		SPUDecoderMode.Init("CORE_SPUDecoderMode", path);
+		HookStFunc.Init("CORE_HookStFunc", path);
+		LoadLibLv2.Init("CORE_LoadLibLv2", path);
 
 		// Graphics
 		GSRenderMode.Init("GS_RenderMode", path);
+		GSD3DAdaptater.Init("GS_D3DAdaptater", path);
 		GSResolution.Init("GS_Resolution", path);
 		GSAspectRatio.Init("GS_AspectRatio", path);
 		GSFrameLimit.Init("GS_FrameLimit", path);
@@ -185,7 +204,9 @@ public:
 		GSDumpDepthBuffer.Init("GS_DumpDepthBuffer", path);
 		GSReadColorBuffer.Init("GS_GSReadColorBuffer", path);
 		GSVSyncEnable.Init("GS_VSyncEnable", path);
+		GSDebugOutputEnable.Init("GS_DebugOutputEnable", path);
 		GS3DTV.Init("GS_3DTV", path);
+		GSOverlay.Init("GS_Overlay", path);
 
 		// Audio
 		AudioOutMode.Init("Audio_AudioOutMode", path);
@@ -225,10 +246,11 @@ public:
 		PadHandlerRStickRight.Init("ControlSetings_PadHandlerRStickRight", path);
 		PadHandlerRStickUp.Init("ControlSetings_PadHandlerRStickUp", path);
 
-		// HLE/Misc
+		// Miscellaneous
 		HLELogging.Init("HLE_HLELogging", path);
 		RSXLogging.Init("RSX_Logging", path);
-		HLEHookStFunc.Init("HLE_HLEHookStFunc", path);
+		NETStatus.Init("NET_Status", path);
+		NETInterface.Init("NET_Interface", path);
 		HLESaveTTY.Init("HLE_HLESaveTTY", path);
 		HLEExitOnStop.Init("HLE_HLEExitOnStop", path);
 		HLELogLvl.Init("HLE_HLELogLvl", path);
@@ -250,10 +272,17 @@ public:
 	{
 		// Core
 		CPUDecoderMode.Load(0);
+		LLVMExclusionRange.Load(false);
+		LLVMMinId.Load(200);
+		LLVMMaxId.Load(250);
+		LLVMThreshold.Load(1000);
 		SPUDecoderMode.Load(0);
+		HookStFunc.Load(false);
+		LoadLibLv2.Load(false);
 
 		// Graphics
 		GSRenderMode.Load(1);
+		GSD3DAdaptater.Load(1);
 		GSResolution.Load(4);
 		GSAspectRatio.Load(2);
 		GSFrameLimit.Load(0);
@@ -262,7 +291,9 @@ public:
 		GSDumpDepthBuffer.Load(false);
 		GSReadColorBuffer.Load(false);
 		GSVSyncEnable.Load(false);
+		GSDebugOutputEnable.Load(false);
 		GS3DTV.Load(false);
+		GSOverlay.Load(false);
 
 		// Audio
 		AudioOutMode.Load(1);
@@ -302,10 +333,11 @@ public:
 		PadHandlerRStickRight.Load(312); //WXK_END
 		PadHandlerRStickUp.Load(366); //WXK_PAGEUP
 
-		// HLE/Miscs
+		// Miscellaneous
 		HLELogging.Load(false);
 		RSXLogging.Load(false);
-		HLEHookStFunc.Load(false);
+		NETStatus.Load(0);
+		NETInterface.Load(0);
 		HLESaveTTY.Load(false);
 		HLEExitOnStop.Load(false);
 		HLELogLvl.Load(3);
@@ -325,12 +357,19 @@ public:
 
 	void Save()
 	{
-		// CPU/SPU
+		// Core
 		CPUDecoderMode.Save();
+		LLVMExclusionRange.Save();
+		LLVMMinId.Save();
+		LLVMMaxId.Save();
+		LLVMThreshold.Save();
 		SPUDecoderMode.Save();
+		HookStFunc.Save();
+		LoadLibLv2.Save();
 
 		// Graphics
 		GSRenderMode.Save();
+		GSD3DAdaptater.Save();
 		GSResolution.Save();
 		GSAspectRatio.Save();
 		GSFrameLimit.Save();
@@ -339,7 +378,9 @@ public:
 		GSDumpDepthBuffer.Save();
 		GSReadColorBuffer.Save();
 		GSVSyncEnable.Save();
+		GSDebugOutputEnable.Save();
 		GS3DTV.Save();
+		GSOverlay.Save();
 
 		// Audio 
 		AudioOutMode.Save();
@@ -379,10 +420,11 @@ public:
 		PadHandlerRStickRight.Save();
 		PadHandlerRStickUp.Save();
 
-		// HLE/Miscs
+		// Miscellaneous
 		HLELogging.Save();
 		RSXLogging.Save();
-		HLEHookStFunc.Save();
+		NETStatus.Save();
+		NETInterface.Save();
 		HLESaveTTY.Save();
 		HLEExitOnStop.Save();
 		HLELogLvl.Save();

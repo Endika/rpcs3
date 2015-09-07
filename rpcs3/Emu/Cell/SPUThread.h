@@ -1,67 +1,73 @@
 #pragma once
+
 #include "Emu/Cell/Common.h"
 #include "Emu/CPU/CPUThread.h"
 #include "Emu/Cell/SPUContext.h"
 #include "MFC.h"
 
 struct lv2_event_queue_t;
-struct spu_group_t;
+struct lv2_spu_group_t;
+struct lv2_int_tag_t;
 
 // SPU Channels
 enum : u32
 {
-	SPU_RdEventStat     = 0,  //Read event status with mask applied
-	SPU_WrEventMask     = 1,  //Write event mask
-	SPU_WrEventAck      = 2,  //Write end of event processing
-	SPU_RdSigNotify1    = 3,  //Signal notification 1
-	SPU_RdSigNotify2    = 4,  //Signal notification 2
-	SPU_WrDec           = 7,  //Write decrementer count
-	SPU_RdDec           = 8,  //Read decrementer count
-	SPU_RdEventMask     = 11, //Read event mask
-	SPU_RdMachStat      = 13, //Read SPU run status
-	SPU_WrSRR0          = 14, //Write SPU machine state save/restore register 0 (SRR0)
-	SPU_RdSRR0          = 15, //Read SPU machine state save/restore register 0 (SRR0)
-	SPU_WrOutMbox       = 28, //Write outbound mailbox contents
-	SPU_RdInMbox        = 29, //Read inbound mailbox contents
-	SPU_WrOutIntrMbox   = 30, //Write outbound interrupt mailbox contents (interrupting PPU)
+	SPU_RdEventStat     = 0,  // Read event status with mask applied
+	SPU_WrEventMask     = 1,  // Write event mask
+	SPU_WrEventAck      = 2,  // Write end of event processing
+	SPU_RdSigNotify1    = 3,  // Signal notification 1
+	SPU_RdSigNotify2    = 4,  // Signal notification 2
+	SPU_WrDec           = 7,  // Write decrementer count
+	SPU_RdDec           = 8,  // Read decrementer count
+	SPU_RdEventMask     = 11, // Read event mask
+	SPU_RdMachStat      = 13, // Read SPU run status
+	SPU_WrSRR0          = 14, // Write SPU machine state save/restore register 0 (SRR0)
+	SPU_RdSRR0          = 15, // Read SPU machine state save/restore register 0 (SRR0)
+	SPU_WrOutMbox       = 28, // Write outbound mailbox contents
+	SPU_RdInMbox        = 29, // Read inbound mailbox contents
+	SPU_WrOutIntrMbox   = 30, // Write outbound interrupt mailbox contents (interrupting PPU)
 };
 
 // MFC Channels
 enum : u32
 {
-	MFC_WrMSSyncReq     = 9,  //Write multisource synchronization request
-	MFC_RdTagMask       = 12, //Read tag mask
-	MFC_LSA             = 16, //Write local memory address command parameter
-	MFC_EAH             = 17, //Write high order DMA effective address command parameter
-	MFC_EAL             = 18, //Write low order DMA effective address command parameter
-	MFC_Size            = 19, //Write DMA transfer size command parameter
-	MFC_TagID           = 20, //Write tag identifier command parameter
-	MFC_Cmd             = 21, //Write and enqueue DMA command with associated class ID
-	MFC_WrTagMask       = 22, //Write tag mask
-	MFC_WrTagUpdate     = 23, //Write request for conditional or unconditional tag status update
-	MFC_RdTagStat       = 24, //Read tag status with mask applied
-	MFC_RdListStallStat = 25, //Read DMA list stall-and-notify status
-	MFC_WrListStallAck  = 26, //Write DMA list stall-and-notify acknowledge
-	MFC_RdAtomicStat    = 27, //Read completion status of last completed immediate MFC atomic update command
+	MFC_WrMSSyncReq     = 9,  // Write multisource synchronization request
+	MFC_RdTagMask       = 12, // Read tag mask
+	MFC_LSA             = 16, // Write local memory address command parameter
+	MFC_EAH             = 17, // Write high order DMA effective address command parameter
+	MFC_EAL             = 18, // Write low order DMA effective address command parameter
+	MFC_Size            = 19, // Write DMA transfer size command parameter
+	MFC_TagID           = 20, // Write tag identifier command parameter
+	MFC_Cmd             = 21, // Write and enqueue DMA command with associated class ID
+	MFC_WrTagMask       = 22, // Write tag mask
+	MFC_WrTagUpdate     = 23, // Write request for conditional or unconditional tag status update
+	MFC_RdTagStat       = 24, // Read tag status with mask applied
+	MFC_RdListStallStat = 25, // Read DMA list stall-and-notify status
+	MFC_WrListStallAck  = 26, // Write DMA list stall-and-notify acknowledge
+	MFC_RdAtomicStat    = 27, // Read completion status of last completed immediate MFC atomic update command
 };
 
 // SPU Events
 enum : u32
 {
-	SPU_EVENT_MS = 0x1000, // multisource synchronization event
-	SPU_EVENT_A  = 0x800, // privileged attention event
-	SPU_EVENT_LR = 0x400, // lock line reservation lost event
-	SPU_EVENT_S1 = 0x200, // signal notification register 1 available
-	SPU_EVENT_S2 = 0x100, // signal notification register 2 available
-	SPU_EVENT_LE = 0x80, // SPU outbound mailbox available
-	SPU_EVENT_ME = 0x40, // SPU outbound interrupt mailbox available
-	SPU_EVENT_TM = 0x20, // SPU decrementer became negative (?)
-	SPU_EVENT_MB = 0x10, // SPU inbound mailbox available
-	SPU_EVENT_QV = 0x4, // MFC SPU command queue available
-	SPU_EVENT_SN = 0x2, // MFC list command stall-and-notify event
-	SPU_EVENT_TG = 0x1, // MFC tag-group status update event
+	SPU_EVENT_MS = 0x1000, // Multisource Synchronization event
+	SPU_EVENT_A  = 0x800,  // Privileged Attention event
+	SPU_EVENT_LR = 0x400,  // Lock Line Reservation Lost event
+	SPU_EVENT_S1 = 0x200,  // Signal Notification Register 1 available
+	SPU_EVENT_S2 = 0x100,  // Signal Notification Register 2 available
+	SPU_EVENT_LE = 0x80,   // SPU Outbound Mailbox available
+	SPU_EVENT_ME = 0x40,   // SPU Outbound Interrupt Mailbox available
+	SPU_EVENT_TM = 0x20,   // SPU Decrementer became negative (?)
+	SPU_EVENT_MB = 0x10,   // SPU Inbound mailbox available
+	SPU_EVENT_QV = 0x4,    // MFC SPU Command Queue available
+	SPU_EVENT_SN = 0x2,    // MFC List Command stall-and-notify event
+	SPU_EVENT_TG = 0x1,    // MFC Tag Group status update event
 
-	SPU_EVENT_IMPLEMENTED = SPU_EVENT_LR,
+	SPU_EVENT_IMPLEMENTED  = SPU_EVENT_LR, // Mask of implemented events
+
+	SPU_EVENT_WAITING      = 0x80000000, // Originally unused, set when SPU thread starts waiting on ch_event_stat
+	//SPU_EVENT_AVAILABLE  = 0x40000000, // Originally unused, channel count of the SPU_RdEventStat channel
+	SPU_EVENT_INTR_ENABLED = 0x20000000, // Originally unused, represents "SPU Interrupts Enabled" status
 };
 
 // SPU Class 0 Interrupts
@@ -129,77 +135,93 @@ enum
 	SPU_RdSigNotify2_offs = 0x1C00C,
 };
 
-union spu_channel_t
+struct spu_channel_t
 {
+	// set to true if SPU thread must be notified after SPU channel operation
+	thread_local static bool notification_required;
+
 	struct sync_var_t
 	{
-		u32 count;
+		bool count; // value available
+		bool wait; // notification required
 		u32 value;
 	};
 
-	atomic<sync_var_t> sync_var; // atomic variable
+	atomic_t<sync_var_t> sync_var;
 
 public:
-	bool push(u32 value)
+	// returns true on success
+	bool try_push(u32 value)
 	{
-		bool out_result;
-
-		sync_var.atomic_op([&out_result, value](sync_var_t& data)
+		const auto old = sync_var.atomic_op([=](sync_var_t& data)
 		{
-			if ((out_result = data.count == 0))
+			if ((data.wait = data.count) == false)
 			{
-				data.count = 1;
+				data.count = true;
 				data.value = value;
 			}
 		});
 
-		return out_result;
+		return !old.count;
 	}
 
-	void push_bit_or(u32 value)
+	// push performing bitwise OR with previous value, may require notification
+	void push_or(u32 value)
 	{
-		sync_var._or({ 1, value });
-	}
-
-	void push_uncond(u32 value)
-	{
-		sync_var.exchange({ 1, value });
-	}
-
-	bool pop(u32& out_value)
-	{
-		bool out_result;
-
-		sync_var.atomic_op([&out_result, &out_value](sync_var_t& data)
+		const auto old = sync_var.atomic_op([=](sync_var_t& data)
 		{
-			if ((out_result = data.count != 0))
-			{
-				out_value = data.value;
-				data.count = 0;
-				data.value = 0;
-			}
+			data.count = true;
+			data.wait = false;
+			data.value |= value;
 		});
 
-		return out_result;
+		notification_required = old.wait;
 	}
 
-	u32 pop_uncond()
+	// push unconditionally (overwriting previous value), may require notification
+	void push(u32 value)
 	{
-		u32 out_value;
-
-		sync_var.atomic_op([&out_value](sync_var_t& data)
+		const auto old = sync_var.atomic_op([=](sync_var_t& data)
 		{
-			out_value = data.value;
-			data.count = 0;
+			data.count = true;
+			data.wait = false;
+			data.value = value;
+		});
+
+		notification_required = old.wait;
+	}
+
+	// returns true on success and loaded value
+	std::tuple<bool, u32> try_pop()
+	{
+		const auto old = sync_var.atomic_op([](sync_var_t& data)
+		{
+			data.wait = !data.count;
+			data.count = false;
+			data.value = 0; // ???
+		});
+
+		return std::tie(old.count, old.value);
+	}
+
+	// pop unconditionally (loading last value), may require notification
+	u32 pop()
+	{
+		const auto old = sync_var.atomic_op([](sync_var_t& data)
+		{
+			data.wait = false;
+			data.count = false;
 			// value is not cleared and may be read again
 		});
 
-		return out_value;
+		notification_required = old.wait;
+
+		return old.value;
 	}
 
-	void set_value(u32 value, u32 count = 1)
+	void set_value(u32 value, bool count = true)
 	{
-		sync_var.write_relaxed({ count, value });
+		sync_var.store({ count, false, value });
 	}
 
 	u32 get_value() volatile
@@ -217,14 +239,19 @@ struct spu_channel_4_t
 {
 	struct sync_var_t
 	{
-		u32 count;
+		struct
+		{
+			u32 waiting : 1;
+			u32 count : 3;
+		};
+		
 		u32 value0;
 		u32 value1;
 		u32 value2;
 	};
 
-	atomic<sync_var_t> sync_var;
-	atomic<u32> value3;
+	atomic_t<sync_var_t> sync_var;
+	atomic_t<u32> value3;
 
 public:
 	void clear()
@@ -233,11 +260,12 @@ public:
 		value3 = {};
 	}
 
-	void push_uncond(u32 value)
+	// push unconditionally (overwriting latest value), returns true if needs signaling
+	bool push(u32 value)
 	{
 		value3.exchange(value);
 
-		sync_var.atomic_op([value](sync_var_t& data)
+		return sync_var.atomic_op([=](sync_var_t& data) -> bool
 		{
 			switch (data.count++)
 			{
@@ -246,84 +274,80 @@ public:
 			case 2: data.value2 = value; break;
 			default: data.count = 4;
 			}
+
+			if (data.waiting)
+			{
+				data.waiting = 0;
+
+				return true;
+			}
+
+			return false;
 		});
 	}
 
-	// out_count: count after removing first element
-	bool pop(u32& out_value, u32& out_count)
+	// returns true on success and two u32 values: data and count after removing the first element
+	std::tuple<bool, u32, u32> try_pop()
 	{
-		bool out_result;
-
-		const u32 last_value = value3.read_sync();
-
-		sync_var.atomic_op([&out_result, &out_value, &out_count, last_value](sync_var_t& data)
+		return sync_var.atomic_op([this](sync_var_t& data)
 		{
-			if ((out_result = (data.count != 0)))
+			const auto result = std::make_tuple(data.count != 0, u32{ data.value0 }, u32{ data.count - 1u });
+
+			if (data.count != 0)
 			{
-				out_value = data.value0;
-				out_count = --data.count;
+				data.waiting = 0;
+				data.count--;
 
 				data.value0 = data.value1;
 				data.value1 = data.value2;
-				data.value2 = last_value;
+				data.value2 = value3.load_sync();
 			}
-		});
+			else
+			{
+				data.waiting = 1;
+			}
 
-		return out_result;
+			return result;
+		});
 	}
 
 	u32 get_count() volatile
 	{
 		return sync_var.data.count;
 	}
-};
 
-struct spu_interrupt_tag_t
-{
-	atomic<u64> mask;
-	atomic<u64> stat;
-
-	atomic<s32> assigned;
-
-	std::mutex handler_mutex;
-	std::condition_variable cond;
-
-public:
-	void set(u64 ints)
+	void set_values(u32 count, u32 value0, u32 value1 = 0, u32 value2 = 0, u32 value3 = 0)
 	{
-		// leave only enabled interrupts
-		ints &= mask.read_relaxed();
-
-		if (ints && ~stat._or(ints) & ints)
-		{
-			// notify if at least 1 bit was set
-			cond.notify_all();
-		}
-	}
-
-	void clear(u64 ints)
-	{
-		stat &= ~ints;
-	}
-
-	void clear()
-	{
-		mask = {};
-		stat = {};
-
-		assigned = { -1 };
+		sync_var.data.waiting = 0;
+		sync_var.data.count = count;
+		sync_var.data.value0 = value0;
+		sync_var.data.value1 = value1;
+		sync_var.data.value2 = value2;
+		this->value3.store(value3);
 	}
 };
 
-struct g_spu_imm_table_t
+struct spu_int_ctrl_t
 {
-	u128 fsmb[65536]; // table for FSMB, FSMBI instructions
-	u128 fsmh[256]; // table for FSMH instruction
-	u128 fsm[16]; // table for FSM instruction
+	atomic_t<u64> mask;
+	atomic_t<u64> stat;
 
-	u128 sldq_pshufb[32]; // table for SHLQBYBI, SHLQBY, SHLQBYI instructions
-	u128 srdq_pshufb[32]; // table for ROTQMBYBI, ROTQMBY, ROTQMBYI instructions
-	u128 rldq_pshufb[16]; // table for ROTQBYBI, ROTQBY, ROTQBYI instructions
+	std::shared_ptr<struct lv2_int_tag_t> tag;
+
+	void set(u64 ints);
+
+	void clear(u64 ints);
+};
+
+struct spu_imm_table_t
+{
+	v128 fsmb[65536]; // table for FSMB, FSMBI instructions
+	v128 fsmh[256]; // table for FSMH instruction
+	v128 fsm[16]; // table for FSM instruction
+
+	v128 sldq_pshufb[32]; // table for SHLQBYBI, SHLQBY, SHLQBYI instructions
+	v128 srdq_pshufb[32]; // table for ROTQMBYBI, ROTQMBY, ROTQMBYI instructions
+	v128 rldq_pshufb[16]; // table for ROTQBYBI, ROTQBY, ROTQBYI instructions
 
 	class scale_table_t
 	{
@@ -345,7 +369,7 @@ struct g_spu_imm_table_t
 	}
 	const scale;
 
-	g_spu_imm_table_t()
+	spu_imm_table_t()
 	{
 		for (u32 i = 0; i < sizeof(fsm) / sizeof(fsm[0]); i++)
 		{
@@ -397,7 +421,7 @@ struct g_spu_imm_table_t
 	}
 };
 
-extern const g_spu_imm_table_t g_spu_imm;
+extern const spu_imm_table_t g_spu_imm;
 
 enum FPSCR_EX
 {
@@ -424,7 +448,7 @@ public:
 
 	std::string ToString() const
 	{
-		return fmt::Format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
+		return fmt::format("%08x%08x%08x%08x", _u32[3], _u32[2], _u32[1], _u32[0]);
 	}
 
 	void Reset()
@@ -432,7 +456,7 @@ public:
 		memset(this, 0, sizeof(*this));
 	}
 	//slice -> 0 - 1 (double-precision slice index)
-	//NOTE: slices follow u128 indexing, i.e. slice 0 is RIGHT end of register!
+	//NOTE: slices follow v128 indexing, i.e. slice 0 is RIGHT end of register!
 	//roundTo -> FPSCR_RN_*
 	void setSliceRounding(u8 slice, u8 roundTo)
 	{
@@ -452,8 +476,7 @@ public:
 			return this->_u32[3] >> 10 & 0x3;
 
 		default:
-			throw fmt::Format("Unexpected slice value in FPSCR::checkSliceRounding(): %d", slice);
-			return 0;
+			throw EXCEPTION("Unexpected slice value (%d)", slice);
 		}
 	}
 
@@ -481,7 +504,7 @@ public:
 	}
 
 	// Write the FPSCR
-	void Write(const u128 & r)
+	void Write(const v128 & r)
 	{
 		_u32[3] = r._u32[3] & 0x00000F07;
 		_u32[2] = r._u32[2] & 0x00003F07;
@@ -490,7 +513,7 @@ public:
 	}
 
 	// Read the FPSCR
-	void Read(u128 & r)
+	void Read(v128 & r)
 	{
 		r._u32[3] = _u32[3];
 		r._u32[2] = _u32[2];
@@ -501,9 +524,12 @@ public:
 
 class SPUThread : public CPUThread
 {
+	friend class SPURecompilerDecoder;
+	friend class spu_recompiler;
+
 public:
-	u128 GPR[128]; // General-Purpose Registers
-	SPU_FPSCR FPSCR;
+	std::array<v128, 128> gpr; // General-Purpose Registers
+	SPU_FPSCR fpscr;
 
 	std::unordered_map<u32, std::function<bool(SPUThread& SPU)>> m_addr_to_hle_function_map;
 
@@ -526,47 +552,51 @@ public:
 	spu_channel_t ch_snr1; // SPU Signal Notification Register 1
 	spu_channel_t ch_snr2; // SPU Signal Notification Register 2
 
-	u32 ch_event_mask;
-	atomic<u32> ch_event_stat;
+	atomic_t<u32> ch_event_mask;
+	atomic_t<u32> ch_event_stat;
+	u32 last_raddr; // Last Reservation Address (0 if not set)
 
 	u64 ch_dec_start_timestamp; // timestamp of writing decrementer value
 	u32 ch_dec_value; // written decrementer value
 
-	atomic<u32> run_ctrl; // SPU Run Control register (only provided to get latest data written)
-	atomic<u32> status; // SPU Status register
-	atomic<u32> npc; // SPU Next Program Counter register
+	atomic_t<u32> run_ctrl; // SPU Run Control register (only provided to get latest data written)
+	atomic_t<u32> status; // SPU Status register
+	atomic_t<u32> npc; // SPU Next Program Counter register
 
-	spu_interrupt_tag_t int0; // SPU Class 0 Interrupt Management
-	spu_interrupt_tag_t int2; // SPU Class 2 Interrupt Management
+	std::array<spu_int_ctrl_t, 3> int_ctrl; // SPU Class 0, 1, 2 Interrupt Management
 
-	std::weak_ptr<spu_group_t> tg; // SPU Thread Group
+	std::weak_ptr<lv2_spu_group_t> tg; // SPU Thread Group
 
 	std::array<std::pair<u32, std::weak_ptr<lv2_event_queue_t>>, 32> spuq; // Event Queue Keys for SPU Thread
 	std::weak_ptr<lv2_event_queue_t> spup[64]; // SPU Ports
 
-	void write_snr(bool number, u32 value)
+	u32 pc = 0; // 
+	const u32 index; // SPU index
+	const u32 offset; // SPU LS offset
+
+	void push_snr(u32 number, u32 value)
 	{
-		if (!number)
+		// get channel
+		const auto channel =
+			number == 0 ? &ch_snr1 :
+			number == 1 ? &ch_snr2 : throw EXCEPTION("Unexpected");
+
+		// check corresponding SNR register settings
+		if ((snr_config >> number) & 1)
 		{
-			if (snr_config & 1)
-			{
-				ch_snr1.push_bit_or(value);
-			}
-			else
-			{
-				ch_snr1.push_uncond(value);
-			}
+			channel->push_or(value);
 		}
 		else
 		{
-			if (snr_config & 2)
-			{
-				ch_snr2.push_bit_or(value);
-			}
-			else
-			{
-				ch_snr2.push_uncond(value);
-			}
+			channel->push(value);
+		}
+
+		if (channel->notification_required)
+		{
+			// lock for reliable notification
+			std::lock_guard<std::mutex> lock(mutex);
+
+			cv.notify_one();
 		}
 	}
 
@@ -574,6 +604,9 @@ public:
 	void do_dma_list_cmd(u32 cmd, spu_mfc_arg_t args);
 	void process_mfc_cmd(u32 cmd);
 
+	u32 get_events(bool waiting = false);
+	void set_events(u32 mask);
+	void set_interrupt_status(bool enable);
 	u32 get_ch_count(u32 ch);
 	u32 get_ch_value(u32 ch);
 	void set_ch_value(u32 ch, u32 value);
@@ -582,21 +615,21 @@ public:
 	void halt();
 
 	u8 read8(u32 lsa) const { return vm::read8(lsa + offset); }
-	u16 read16(u32 lsa) const { return vm::read16(lsa + offset); }
-	u32 read32(u32 lsa) const { return vm::read32(lsa + offset); }
-	u64 read64(u32 lsa) const { return vm::read64(lsa + offset); }
-	u128 read128(u32 lsa) const { return vm::read128(lsa + offset); }
+	u16 read16(u32 lsa) const { return vm::ps3::read16(lsa + offset); }
+	u32 read32(u32 lsa) const { return vm::ps3::read32(lsa + offset); }
+	u64 read64(u32 lsa) const { return vm::ps3::read64(lsa + offset); }
+	v128 read128(u32 lsa) const { return vm::ps3::read128(lsa + offset); }
 
 	void write8(u32 lsa, u8 data) const { vm::write8(lsa + offset, data); }
-	void write16(u32 lsa, u16 data) const { vm::write16(lsa + offset, data); }
-	void write32(u32 lsa, u32 data) const { vm::write32(lsa + offset, data); }
-	void write64(u32 lsa, u64 data) const { vm::write64(lsa + offset, data); }
-	void write128(u32 lsa, u128 data) const { vm::write128(lsa + offset, data); }
+	void write16(u32 lsa, u16 data) const { vm::ps3::write16(lsa + offset, data); }
+	void write32(u32 lsa, u32 data) const { vm::ps3::write32(lsa + offset, data); }
+	void write64(u32 lsa, u64 data) const { vm::ps3::write64(lsa + offset, data); }
+	void write128(u32 lsa, v128 data) const { vm::ps3::write128(lsa + offset, data); }
 
-	void write16(u32 lsa, be_t<u16> data) const { vm::write16(lsa + offset, data); }
-	void write32(u32 lsa, be_t<u32> data) const { vm::write32(lsa + offset, data); }
-	void write64(u32 lsa, be_t<u64> data) const { vm::write64(lsa + offset, data); }
-	void write128(u32 lsa, be_t<u128> data) const { vm::write128(lsa + offset, data); }
+	void write16(u32 lsa, be_t<u16> data) const { vm::ps3::write16(lsa + offset, data); }
+	void write32(u32 lsa, be_t<u32> data) const { vm::ps3::write32(lsa + offset, data); }
+	void write64(u32 lsa, be_t<u64> data) const { vm::ps3::write64(lsa + offset, data); }
+	void write128(u32 lsa, be_t<v128> data) const { vm::ps3::write128(lsa + offset, data); }
 
 	void RegisterHleFunction(u32 addr, std::function<bool(SPUThread & SPU)> function)
 	{
@@ -624,34 +657,53 @@ public:
 		}
 	}
 
-	std::function<void(SPUThread& SPU)> m_custom_task;
+	std::function<void(SPUThread&)> custom_task;
+	std::exception_ptr pending_exception;
+	u32 recursion_level = 0;
+
+protected:
+	SPUThread(CPUThreadType type, const std::string& name, std::function<std::string()> thread_name, u32 index, u32 offset);
 
 public:
-	SPUThread(CPUThreadType type = CPU_THREAD_SPU);
-	virtual ~SPUThread();
+	SPUThread(const std::string& name, u32 index);
+	virtual ~SPUThread() override;
 
-	virtual std::string RegsToString()
+	virtual bool is_paused() const override;
+
+	virtual void dump_info() const override;
+	virtual u32 get_pc() const override { return pc; }
+	virtual u32 get_offset() const override { return offset; }
+	virtual void do_run() override;
+	virtual void task() override;
+
+	virtual void init_regs() override;
+	virtual void init_stack() override;
+	virtual void close_stack() override;
+
+	void fast_call(u32 ls_addr);
+
+	virtual std::string RegsToString() const override
 	{
 		std::string ret = "Registers:\n=========\n";
 
-		for(uint i=0; i<128; ++i) ret += fmt::Format("GPR[%d] = 0x%s\n", i, GPR[i].to_hex().c_str());
+		for(uint i=0; i<128; ++i) ret += fmt::format("GPR[%d] = 0x%s\n", i, gpr[i].to_hex().c_str());
 
 		return ret;
 	}
 
-	virtual std::string ReadRegString(const std::string& reg)
+	virtual std::string ReadRegString(const std::string& reg) const override
 	{
 		std::string::size_type first_brk = reg.find('[');
 		if (first_brk != std::string::npos)
 		{
 			long reg_index;
 			reg_index = atol(reg.substr(first_brk + 1, reg.length()-2).c_str());
-			if (reg.find("GPR")==0) return fmt::Format("%016llx%016llx",  GPR[reg_index]._u64[1], GPR[reg_index]._u64[0]);
+			if (reg.find("GPR")==0) return fmt::format("%016llx%016llx",  gpr[reg_index]._u64[1], gpr[reg_index]._u64[0]);
 		}
 		return "";
 	}
 
-	bool WriteRegString(const std::string& reg, std::string value)
+	bool WriteRegString(const std::string& reg, std::string value) override
 	{
 		while (value.length() < 32) value = "0"+value;
 		std::string::size_type first_brk = reg.find('[');
@@ -672,65 +724,22 @@ public:
 				{
 					return false;
 				}
-				GPR[reg_index]._u64[0] = (u64)reg_value0;
-				GPR[reg_index]._u64[1] = (u64)reg_value1;
+				gpr[reg_index]._u64[0] = (u64)reg_value0;
+				gpr[reg_index]._u64[1] = (u64)reg_value1;
 				return true;
 			}
 		}
 		return false;
 	}
-
-public:
-	virtual void InitRegs();
-	virtual void InitStack();
-	virtual void CloseStack();
-	virtual void Task();
-	void FastCall(u32 ls_addr);
-	void FastStop();
-	void FastRun();
-
-protected:
-	virtual void DoReset();
-	virtual void DoRun();
-	virtual void DoPause();
-	virtual void DoResume();
-	virtual void DoStop();
-	virtual void DoClose();
 };
-
-SPUThread& GetCurrentSPUThread();
 
 class spu_thread : cpu_thread
 {
-	static const u32 stack_align = 0x10;
-	vm::ptr<u64> argv;
-	u32 argc;
-	vm::ptr<u64> envp;
-
 public:
 	spu_thread(u32 entry, const std::string& name = "", u32 stack_size = 0, u32 prio = 0);
 
 	cpu_thread& args(std::initializer_list<std::string> values) override
 	{
-		if (!values.size())
-			return *this;
-
-		assert(argc == 0);
-
-		envp.set(Memory.MainMem.AllocAlign((u32)sizeof(envp), stack_align));
-		*envp = 0;
-		argv.set(Memory.MainMem.AllocAlign(u32(sizeof(argv)* values.size()), stack_align));
-
-		for (auto &arg : values)
-		{
-			u32 arg_size = align(u32(arg.size() + 1), stack_align);
-			u32 arg_addr = (u32)Memory.MainMem.AllocAlign(arg_size, stack_align);
-
-			std::strcpy(vm::get_ptr<char>(arg_addr), arg.c_str());
-
-			argv[argc++] = arg_addr;
-		}
-
 		return *this;
 	}
 
@@ -738,11 +747,7 @@ public:
 	{
 		auto& spu = static_cast<SPUThread&>(*thread);
 
-		spu.Run();
-
-		spu.GPR[3].from64(argc);
-		spu.GPR[4].from64(argv.addr());
-		spu.GPR[5].from64(envp.addr());
+		spu.run();
 
 		return *this;
 	}

@@ -16,7 +16,10 @@
 
 SysCallBase sys_prx("sys_prx");
 
-extern void fill_ppu_exec_map(u32 addr, u32 size);
+lv2_prx_t::lv2_prx_t()
+	: id(idm::get_last_id())
+{
+}
 
 s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_option_t> pOpt)
 {
@@ -26,15 +29,19 @@ s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_opt
 
 	vfsFile f(path);
 	if (!f.IsOpened())
+	{
 		return CELL_PRX_ERROR_UNKNOWN_MODULE;
+	}
 
 	if (loader.init(f) != loader::handler::error_code::ok || !loader.is_sprx())
+	{
 		return CELL_PRX_ERROR_ILLEGAL_LIBRARY;
+	}
 
 	loader::handlers::elf64::sprx_info info;
 	loader.load_sprx(info);
 
-	auto prx = std::make_shared<lv2_prx_t>();
+	auto prx = idm::make_ptr<lv2_prx_t>();
 
 	auto meta = info.modules[""];
 	prx->start.set(meta.exports[0xBC9A0086]);
@@ -97,7 +104,7 @@ s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_opt
 
 			if (!func)
 			{
-				sys_prx.Error("Unimplemented function '%s' in '%s' module (0x%x)", SysCalls::GetFuncName(nid), module_.first);
+				sys_prx.Error("Unknown function '%s' in '%s' module (0x%x)", SysCalls::GetFuncName(nid), module_.first);
 
 				index = add_ppu_func(ModuleFunc(nid, 0, module, nullptr, nullptr));
 			}
@@ -115,6 +122,8 @@ s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_opt
 		}
 	}
 
+	const auto decoder_cache = fxm::get<ppu_decoder_cache_t>();
+
 	for (auto& seg : info.segments)
 	{
 		const u32 addr = seg.begin.addr();
@@ -122,7 +131,7 @@ s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_opt
 
 		if (vm::check_addr(addr, size))
 		{
-			fill_ppu_exec_map(addr, size);
+			decoder_cache->initialize(addr, size);
 		}
 		else
 		{
@@ -130,17 +139,17 @@ s32 prx_load_module(std::string path, u64 flags, vm::ptr<sys_prx_load_module_opt
 		}
 	}
 
-	return Emu.GetIdManager().add(std::move(prx));
+	return prx->id;
 }
 
-s32 sys_prx_load_module(vm::ptr<const char> path, u64 flags, vm::ptr<sys_prx_load_module_option_t> pOpt)
+s32 sys_prx_load_module(vm::cptr<char> path, u64 flags, vm::ptr<sys_prx_load_module_option_t> pOpt)
 {
 	sys_prx.Warning("sys_prx_load_module(path=*0x%x, flags=0x%llx, pOpt=*0x%x)", path, flags, pOpt);
 
 	return prx_load_module(path.get_ptr(), flags, pOpt);
 }
 
-s32 sys_prx_load_module_list(s32 count, vm::pptr<const char> path_list, u64 flags, vm::ptr<sys_prx_load_module_option_t> pOpt, vm::ptr<u32> id_list)
+s32 sys_prx_load_module_list(s32 count, vm::cpptr<char> path_list, u64 flags, vm::ptr<sys_prx_load_module_option_t> pOpt, vm::ptr<u32> id_list)
 {
 	sys_prx.Warning("sys_prx_load_module_list(count=%d, path_list=*0x%x, flags=0x%llx, pOpt=*0x%x, id_list=*0x%x)", count, path_list, flags, pOpt, id_list);
 
@@ -181,7 +190,7 @@ s32 sys_prx_start_module(s32 id, u64 flags, vm::ptr<sys_prx_start_module_option_
 {
 	sys_prx.Warning("sys_prx_start_module(id=0x%x, flags=0x%llx, pOpt=*0x%x)", id, flags, pOpt);
 
-	const auto prx = Emu.GetIdManager().get<lv2_prx_t>(id);
+	const auto prx = idm::get<lv2_prx_t>(id);
 
 	if (!prx)
 	{
@@ -192,7 +201,7 @@ s32 sys_prx_start_module(s32 id, u64 flags, vm::ptr<sys_prx_start_module_option_
 	//	return CELL_PRX_ERROR_ALREADY_STARTED;
 
 	//prx->is_started = true;
-	pOpt->entry_point.set(be_t<u64>::make(prx->start ? prx->start.addr() : ~0ull));
+	pOpt->entry_point.set(prx->start ? prx->start.addr() : ~0ull);
 
 	return CELL_OK;
 }
@@ -201,7 +210,7 @@ s32 sys_prx_stop_module(s32 id, u64 flags, vm::ptr<sys_prx_stop_module_option_t>
 {
 	sys_prx.Warning("sys_prx_stop_module(id=0x%x, flags=0x%llx, pOpt=*0x%x)", id, flags, pOpt);
 
-	const auto prx = Emu.GetIdManager().get<lv2_prx_t>(id);
+	const auto prx = idm::get<lv2_prx_t>(id);
 
 	if (!prx)
 	{
@@ -212,7 +221,7 @@ s32 sys_prx_stop_module(s32 id, u64 flags, vm::ptr<sys_prx_stop_module_option_t>
 	//	return CELL_PRX_ERROR_ALREADY_STOPPED;
 
 	//prx->is_started = false;
-	pOpt->entry_point.set(be_t<u64>::make(prx->stop ? prx->stop.addr() : -1));
+	pOpt->entry_point.set(prx->stop ? prx->stop.addr() : -1);
 
 	return CELL_OK;
 }
@@ -222,7 +231,7 @@ s32 sys_prx_unload_module(s32 id, u64 flags, vm::ptr<sys_prx_unload_module_optio
 	sys_prx.Warning("sys_prx_unload_module(id=0x%x, flags=0x%llx, pOpt=*0x%x)", id, flags, pOpt);
 
 	// Get the PRX, free the used memory and delete the object and its ID
-	const auto prx = Emu.GetIdManager().get<lv2_prx_t>(id);
+	const auto prx = idm::get<lv2_prx_t>(id);
 
 	if (!prx)
 	{
@@ -232,14 +241,14 @@ s32 sys_prx_unload_module(s32 id, u64 flags, vm::ptr<sys_prx_unload_module_optio
 	//Memory.Free(prx->address);
 
 	//s32 result = prx->exit ? prx->exit() : CELL_OK;
-	Emu.GetIdManager().remove<lv2_prx_t>(id);
+	idm::remove<lv2_prx_t>(id);
 	
 	return CELL_OK;
 }
 
-s32 sys_prx_get_module_list()
+s32 sys_prx_get_module_list(u64 flags, vm::ptr<sys_prx_get_module_list_t> pInfo)
 {
-	sys_prx.Todo("sys_prx_get_module_list()");
+	sys_prx.Todo("sys_prx_get_module_list(flags=%d, pInfo=*0x%x)", flags, pInfo);
 	return CELL_OK;
 }
 
@@ -255,15 +264,19 @@ s32 sys_prx_get_module_id_by_address()
 	return CELL_OK;
 }
 
-s32 sys_prx_get_module_id_by_name()
+s32 sys_prx_get_module_id_by_name(vm::cptr<char> name, u64 flags, vm::ptr<sys_prx_get_module_id_by_name_option_t> pOpt)
 {
-	sys_prx.Todo("sys_prx_get_module_id_by_name()");
+	const char *realName = name.get_ptr();
+	sys_prx.Todo("sys_prx_get_module_id_by_name(name=%s, flags=%d, pOpt=*0x%x)", realName, flags, pOpt);
+
+	//if (realName == "?") ...
+
 	return CELL_PRX_ERROR_UNKNOWN_MODULE;
 }
 
-s32 sys_prx_get_module_info()
+s32 sys_prx_get_module_info(s32 id, u64 flags, vm::ptr<sys_prx_module_info_t> info)
 {
-	sys_prx.Todo("sys_prx_get_module_info()");
+	sys_prx.Todo("sys_prx_get_module_info(id=%d, flags=%d, info=*0x%x)", id, flags, info);
 	return CELL_OK;
 }
 

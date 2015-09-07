@@ -119,35 +119,33 @@ void GLFragmentDecompilerThread::Task()
 }
 
 GLFragmentProgram::GLFragmentProgram()
-	: m_decompiler_thread(nullptr)
-	, id(0)
 {
 }
 
 GLFragmentProgram::~GLFragmentProgram()
 {
-	if (m_decompiler_thread)
-	{
-		Wait();
-		if (m_decompiler_thread->IsAlive())
-		{
-			m_decompiler_thread->Stop();
-		}
+	//if (m_decompiler_thread)
+	//{
+	//	Wait();
+	//	if (m_decompiler_thread->IsAlive())
+	//	{
+	//		m_decompiler_thread->Stop();
+	//	}
 
-		delete m_decompiler_thread;
-		m_decompiler_thread = nullptr;
-	}
+	//	delete m_decompiler_thread;
+	//	m_decompiler_thread = nullptr;
+	//}
 
 	Delete();
 }
 
-void GLFragmentProgram::Wait()
-{
-	if (m_decompiler_thread && m_decompiler_thread->IsAlive())
-	{
-		m_decompiler_thread->Join();
-	}
-}
+//void GLFragmentProgram::Wait()
+//{
+//	if (m_decompiler_thread && m_decompiler_thread->IsAlive())
+//	{
+//		m_decompiler_thread->Join();
+//	}
+//}
 
 void GLFragmentProgram::Decompile(RSXFragmentProgram& prog)
 {
@@ -157,29 +155,31 @@ void GLFragmentProgram::Decompile(RSXFragmentProgram& prog)
 	{
 		for (const ParamItem PI : PT.items)
 		{
+			if (PT.type == "sampler2D")
+				continue;
 			size_t offset = atoi(PI.name.c_str() + 2);
 			FragmentConstantOffsetCache.push_back(offset);
 		}
 	}
 }
 
-void GLFragmentProgram::DecompileAsync(RSXFragmentProgram& prog)
-{
-	if (m_decompiler_thread)
-	{
-		Wait();
-		if (m_decompiler_thread->IsAlive())
-		{
-			m_decompiler_thread->Stop();
-		}
-
-		delete m_decompiler_thread;
-		m_decompiler_thread = nullptr;
-	}
-
-	m_decompiler_thread = new GLFragmentDecompilerThread(shader, parr, prog.addr, prog.size, prog.ctrl);
-	m_decompiler_thread->Start();
-}
+//void GLFragmentProgram::DecompileAsync(RSXFragmentProgram& prog)
+//{
+//	if (m_decompiler_thread)
+//	{
+//		Wait();
+//		if (m_decompiler_thread->IsAlive())
+//		{
+//			m_decompiler_thread->Stop();
+//		}
+//
+//		delete m_decompiler_thread;
+//		m_decompiler_thread = nullptr;
+//	}
+//
+//	m_decompiler_thread = new GLFragmentDecompilerThread(shader, parr, prog.addr, prog.size, prog.ctrl);
+//	m_decompiler_thread->Start();
+//}
 
 void GLFragmentProgram::Compile()
 {

@@ -13,13 +13,13 @@
 	#include "define_new_memleakdetect.h"
 #endif
 
-// This header should be frontend-agnostic, so don't assume wx includes everything
-#pragma warning( disable : 4800 )
+#pragma warning( disable : 4351 )
 
 #include <cstdio>
 #include <cstring>
 #include <cassert>
 #include <cstdint>
+#include <climits>
 #include <cmath>
 #include <atomic>
 #include <mutex>
@@ -37,46 +37,135 @@
 #include <unordered_set>
 #include <map>
 #include <unordered_map>
+#include <list>
+#include <forward_list>
+#include <typeindex>
+
+using namespace std::string_literals;
 
 #include "Utilities/GNU.h"
 
-typedef unsigned int uint;
+#define CHECK_SIZE(type, size) static_assert(sizeof(type) == size, "Invalid " #type " type size")
+#define CHECK_ALIGN(type, align) static_assert(__alignof(type) == align, "Invalid " #type " type alignment")
+#define CHECK_MAX_SIZE(type, size) static_assert(sizeof(type) <= size, #type " type size is too big")
+#define CHECK_SIZE_ALIGN(type, size, align) CHECK_SIZE(type, size); CHECK_ALIGN(type, align)
+#define CHECK_ASCENDING(constexpr_array) static_assert(::is_ascending(constexpr_array), #constexpr_array " is not sorted in ascending order")
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+using uint = unsigned int;
 
-typedef int8_t s8;
-typedef int16_t s16;
-typedef int32_t s32;
-typedef int64_t s64;
+using u8 = std::uint8_t;
+using u16 = std::uint16_t;
+using u32 = std::uint32_t;
+using u64 = std::uint64_t;
 
-template<typename T> force_inline T align(const T addr, int align)
+using s8 = std::int8_t;
+using s16 = std::int16_t;
+using s32 = std::int32_t;
+using s64 = std::int64_t;
+
+using f32 = float;
+using f64 = double;
+
+using u128 = __uint128_t;
+
+CHECK_SIZE_ALIGN(u128, 16, 16);
+
+// bool type replacement for PS3/PSV
+class b8
 {
-	return (addr + (align - 1)) & ~(align - 1);
+	std::uint8_t m_value;
+
+public:
+	b8(const bool value)
+		: m_value(value)
+	{
+	}
+
+	operator bool() const //template<typename T, typename = std::enable_if_t<std::is_integral<T>::value>> operator T() const
+	{
+		return m_value != 0;
+	}
+};
+
+CHECK_SIZE_ALIGN(b8, 1, 1);
+
+template<typename T, typename = std::enable_if_t<std::is_integral<T>::value>> inline T align(const T& value, u64 align)
+{
+	return static_cast<T>((value + (align - 1)) & ~(align - 1));
 }
 
-template<typename T> struct sizeof32_t
+// copy null-terminated string from std::string to char array with truncation
+template<std::size_t N> inline void strcpy_trunc(char(&dst)[N], const std::string& src)
 {
-	static const u32 value = static_cast<u32>(sizeof(T));
+	const std::size_t count = src.size() >= N ? N - 1 : src.size();
+	std::memcpy(dst, src.c_str(), count);
+	dst[count] = '\0';
+}
 
-	static_assert(value == sizeof(T), "sizeof32() error: sizeof() is too big");
+// copy null-terminated string from char array to char array with truncation
+template<std::size_t N, std::size_t N2> inline void strcpy_trunc(char(&dst)[N], const char(&src)[N2])
+{
+	const std::size_t count = N2 >= N ? N - 1 : N2;
+	std::memcpy(dst, src, count);
+	dst[count] = '\0';
+}
+
+// returns true if all array elements are unique and sorted in ascending order
+template<typename T, std::size_t N> constexpr bool is_ascending(const T(&array)[N], std::size_t from = 0)
+{
+	return from >= N - 1 ? true : array[from] < array[from + 1] ? is_ascending(array, from + 1) : false;
+}
+
+// get (first) array element equal to `value` or nullptr if not found
+template<typename T, std::size_t N, typename T2> constexpr const T* static_search(const T(&array)[N], const T2& value, std::size_t from = 0)
+{
+	return from >= N ? nullptr : array[from] == value ? array + from : static_search(array, value, from + 1);
+}
+
+// bool wrapper for restricting bool result conversions
+struct explicit_bool_t
+{
+	const bool value;
+
+	explicit_bool_t(bool value)
+		: value(value)
+	{
+	}
+
+	explicit operator bool() const
+	{
+		return value;
+	}
+};
+
+template<typename T1, typename T2, typename T3 = const char*> struct triplet_t
+{
+	T1 first;
+	T2 second;
+	T3 third;
+
+	constexpr bool operator ==(const T1& right) const
+	{
+		return first == right;
+	}
 };
 
 // return 32 bit sizeof() to avoid widening/narrowing conversions with size_t
-#define sizeof32(type) sizeof32_t<type>::value
+#define sizeof32(type) static_cast<u32>(sizeof(type))
 
-template<typename T> using func_def = T; // workaround for MSVC bug: `using X = func_def<void()>;` instead of `using X = void();`
+// return 32 bit alignof() to avoid widening/narrowing conversions with size_t
+#define alignof32(type) static_cast<u32>(__alignof(type))
 
-#include "Utilities/BEType.h"
-#include "Utilities/StrFmt.h"
+#define WRAP_EXPR(expr) [&]{ return expr; }
+#define COPY_EXPR(expr) [=]{ return expr; }
+#define EXCEPTION(text, ...) fmt::exception(__FILE__, __LINE__, __FUNCTION__, text, ##__VA_ARGS__)
+#define VM_CAST(value) vm::impl_cast(value, __FILE__, __LINE__, __FUNCTION__)
 
-#include "Emu/Memory/atomic.h"
-
-template<typename T> struct ID_type;
-
-#define REG_ID_TYPE(t, id) template<> struct ID_type<t> { static const u32 type = id; }
+template<typename T> struct id_traits;
 
 #define _PRGNAME_ "RPCS3"
 #define _PRGVER_ "0.0.0.5"
+
+#include "Utilities/BEType.h"
+#include "Utilities/StrFmt.h"
+#include "Emu/Memory/atomic.h"

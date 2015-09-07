@@ -1,9 +1,9 @@
 #include "stdafx.h"
-#include "FragmentProgramDecompiler.h"
-
 #include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
+
+#include "FragmentProgramDecompiler.h"
 
 FragmentProgramDecompiler::FragmentProgramDecompiler(u32 addr, u32& size, u32 ctrl) :
 	m_addr(addr),
@@ -31,7 +31,7 @@ void FragmentProgramDecompiler::SetDst(std::string code, bool append_mask)
 	case 7: code = "(" + code + " / 8.0)"; break;
 
 	default:
-		LOG_ERROR(RSX, "Bad scale: %d", fmt::by_value(src1.scale));
+		LOG_ERROR(RSX, "Bad scale: %d", u32{ src1.scale });
 		Emu.Pause();
 		break;
 	}
@@ -92,7 +92,7 @@ std::string FragmentProgramDecompiler::GetMask()
 
 std::string FragmentProgramDecompiler::AddReg(u32 index, int fp16)
 {
-	return m_parr.AddParam(PF_PARAM_NONE, getFloatTypeName(4), std::string(fp16 ? "h" : "r") + std::to_string(index), getFloatTypeName(4) + "(0.0)");
+	return m_parr.AddParam(PF_PARAM_NONE, getFloatTypeName(4), std::string(fp16 ? "h" : "r") + std::to_string(index), getFloatTypeName(4) + "(0., 0., 0., 0.)");
 }
 
 bool FragmentProgramDecompiler::HasReg(u32 index, int fp16)
@@ -114,7 +114,7 @@ std::string FragmentProgramDecompiler::AddConst()
 		return name;
 	}
 
-	auto data = vm::ptr<u32>::make(m_addr + m_size + 4 * sizeof(u32));
+	auto data = vm::ps3::ptr<u32>::make(m_addr + m_size + 4 * sizeof32(u32));
 
 	m_offset = 2 * 4 * sizeof(u32);
 	u32 x = GetData(data[0]);
@@ -276,7 +276,7 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 			}
 			else
 			{
-				LOG_ERROR(RSX, "Bad src reg num: %d", fmt::by_value(dst.src_attr_reg_num));
+				LOG_ERROR(RSX, "Bad src reg num: %d", u32{ dst.src_attr_reg_num });
 				ret += m_parr.AddParam(PF_PARAM_IN, getFloatTypeName(4), "unk");
 				Emu.Pause();
 			}
@@ -290,7 +290,7 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 		break;
 
 	default:
-		LOG_ERROR(RSX, "Bad src type %d", fmt::by_value(src.reg_type));
+		LOG_ERROR(RSX, "Bad src type %d", u32{ src.reg_type });
 		Emu.Pause();
 		break;
 	}
@@ -313,7 +313,7 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 
 std::string FragmentProgramDecompiler::BuildCode()
 {
-	//main += fmt::Format("\tgl_FragColor = %c0;\n", m_ctrl & 0x40 ? 'r' : 'h');
+	//main += fmt::format("\tgl_FragColor = %c0;\n", m_ctrl & 0x40 ? 'r' : 'h');
 
 	if (m_ctrl & 0xe) main += m_ctrl & 0x40 ? "\tgl_FragDepth = r1.z;\n" : "\tgl_FragDepth = h2.z;\n";
 
@@ -335,7 +335,7 @@ std::string FragmentProgramDecompiler::BuildCode()
 
 std::string FragmentProgramDecompiler::Decompile()
 {
-	auto data = vm::ptr<u32>::make(m_addr);
+	auto data = vm::ps3::ptr<u32>::make(m_addr);
 	m_size = 0;
 	m_location = 0;
 	m_loop_count = 0;
@@ -510,12 +510,12 @@ std::string FragmentProgramDecompiler::Decompile()
 			case RSX_FP_OPCODE_LOOP:
 				if (!src0.exec_if_eq && !src0.exec_if_gr && !src0.exec_if_lt)
 				{
-					AddCode(fmt::Format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) {} //-> %u //LOOP",
+					AddCode(fmt::format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) {} //-> %u //LOOP",
 						m_loop_count, src1.init_counter, m_loop_count, src1.end_counter, m_loop_count, src1.increment, src2.end_offset));
 				}
 				else
 				{
-					AddCode(fmt::Format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) //LOOP",
+					AddCode(fmt::format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) //LOOP",
 						m_loop_count, src1.init_counter, m_loop_count, src1.end_counter, m_loop_count, src1.increment));
 					m_loop_count++;
 					m_end_offsets.push_back(src2.end_offset << 2);
@@ -526,12 +526,12 @@ std::string FragmentProgramDecompiler::Decompile()
 			case RSX_FP_OPCODE_REP:
 				if (!src0.exec_if_eq && !src0.exec_if_gr && !src0.exec_if_lt)
 				{
-					AddCode(fmt::Format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) {} //-> %u //REP",
+					AddCode(fmt::format("$ifcond for(int i%u = %u; i%u < %u; i%u += %u) {} //-> %u //REP",
 						m_loop_count, src1.init_counter, m_loop_count, src1.end_counter, m_loop_count, src1.increment, src2.end_offset));
 				}
 				else
 				{
-					AddCode(fmt::Format("if($cond) for(int i%u = %u; i%u < %u; i%u += %u) //REP",
+					AddCode(fmt::format("if($cond) for(int i%u = %u; i%u < %u; i%u += %u) //REP",
 						m_loop_count, src1.init_counter, m_loop_count, src1.end_counter, m_loop_count, src1.increment));
 					m_loop_count++;
 					m_end_offsets.push_back(src2.end_offset << 2);

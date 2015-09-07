@@ -102,34 +102,34 @@ force_inline void Write64LE(const fs::file& f, const u64 data)
 	f.write(&data, sizeof(data));
 }
 
-force_inline void Write16(vfsStream& f, const u16 data)
+force_inline void Write16(vfsStream& f, const be_t<u16> data)
 {
-	Write16LE(f, re16(data));
+	f.Write(&data, sizeof(data));
 }
 
-force_inline void Write16(const fs::file& f, const u16 data)
+force_inline void Write16(const fs::file& f, const be_t<u16> data)
 {
-	Write16LE(f, re16(data));
+	f.write(&data, sizeof(data));
 }
 
-force_inline void Write32(vfsStream& f, const u32 data)
+force_inline void Write32(vfsStream& f, const be_t<u32> data)
 {
-	Write32LE(f, re32(data));
+	f.Write(&data, sizeof(data));
 }
 
-force_inline void Write32(const fs::file& f, const u32 data)
+force_inline void Write32(const fs::file& f, const be_t<u32> data)
 {
-	Write32LE(f, re32(data));
+	f.write(&data, sizeof(data));
 }
 
-force_inline void Write64(vfsStream& f, const u64 data)
+force_inline void Write64(vfsStream& f, const be_t<u64> data)
 {
-	Write64LE(f, re64(data));
+	f.Write(&data, sizeof(data));
 }
 
-force_inline void Write64(const fs::file& f, const u64 data)
+force_inline void Write64(const fs::file& f, const be_t<u64> data)
 {
-	Write64LE(f, re64(data));
+	f.write(&data, sizeof(data));
 }
 
 void WriteEhdr(const fs::file& f, Elf64_Ehdr& ehdr)
@@ -353,7 +353,7 @@ void ControlInfo::Show()
 		{
 			std::string digest_str;
 			for (int i = 0; i < 20; i++)
-				digest_str += fmt::Format("%02x", file_digest_30.digest[i]);
+				digest_str += fmt::format("%02x", file_digest_30.digest[i]);
 
 			LOG_NOTICE(LOADER, "Digest: %s", digest_str.c_str());
 			LOG_NOTICE(LOADER, "Unknown: 0x%llx", file_digest_30.unknown);
@@ -364,8 +364,8 @@ void ControlInfo::Show()
 			std::string digest_str2;
 			for (int i = 0; i < 20; i++)
 			{
-				digest_str1 += fmt::Format("%02x", file_digest_40.digest1[i]);
-				digest_str2 += fmt::Format("%02x", file_digest_40.digest2[i]);
+				digest_str1 += fmt::format("%02x", file_digest_40.digest1[i]);
+				digest_str2 += fmt::format("%02x", file_digest_40.digest2[i]);
 			}
 
 			LOG_NOTICE(LOADER, "Digest1: %s", digest_str1.c_str());
@@ -380,12 +380,12 @@ void ControlInfo::Show()
 		std::string invdigest_str;
 		std::string xordigest_str;
 		for (int i = 0; i < 48; i++)
-			contentid_str += fmt::Format("%02x", npdrm.content_id[i]);
+			contentid_str += fmt::format("%02x", npdrm.content_id[i]);
 		for (int i = 0; i < 16; i++)
 		{
-			digest_str += fmt::Format("%02x", npdrm.digest[i]);
-			invdigest_str += fmt::Format("%02x", npdrm.invdigest[i]);
-			xordigest_str += fmt::Format("%02x", npdrm.xordigest[i]);
+			digest_str += fmt::format("%02x", npdrm.digest[i]);
+			invdigest_str += fmt::format("%02x", npdrm.invdigest[i]);
+			xordigest_str += fmt::format("%02x", npdrm.xordigest[i]);
 		}
 
 		LOG_NOTICE(LOADER, "Magic: 0x%08x", npdrm.magic);
@@ -417,10 +417,10 @@ void MetadataInfo::Show()
 	std::string iv_pad_str;
 	for (int i = 0; i < 0x10; i++)
 	{
-		key_str += fmt::Format("%02x", key[i]);
-		key_pad_str += fmt::Format("%02x", key_pad[i]);
-		iv_str += fmt::Format("%02x", iv[i]);
-		iv_pad_str += fmt::Format("%02x", iv_pad[i]);
+		key_str += fmt::format("%02x", key[i]);
+		key_pad_str += fmt::format("%02x", key_pad[i]);
+		iv_str += fmt::format("%02x", iv[i]);
+		iv_pad_str += fmt::format("%02x", iv_pad[i]);
 	}
 
 	LOG_NOTICE(LOADER, "Key: %s", key_str.c_str());
@@ -935,9 +935,9 @@ bool SELFDecrypter::DecryptNPDRM(u8 *metadata, u32 metadata_size)
 bool SELFDecrypter::LoadMetadata()
 {
 	aes_context aes;
-	u32 metadata_info_size = sizeof(meta_info);
+	u32 metadata_info_size = sizeof32(meta_info);
 	u8 *metadata_info = (u8 *)malloc(metadata_info_size);
-	u32 metadata_headers_size = sce_hdr.se_hsize - (sizeof(sce_hdr) + sce_hdr.se_meta + sizeof(meta_info));
+	u32 metadata_headers_size = sce_hdr.se_hsize - (sizeof32(sce_hdr) + sce_hdr.se_meta + sizeof32(meta_info));
 	u8 *metadata_headers = (u8 *)malloc(metadata_headers_size);
 
 	// Locate and read the encrypted metadata info.
@@ -1076,7 +1076,7 @@ bool SELFDecrypter::DecryptData()
 bool SELFDecrypter::MakeElf(const std::string& elf, bool isElf32)
 {
 	// Create a new ELF file.
-	fs::file e(elf, o_write | o_create | o_trunc);
+	fs::file e(elf, fom::write | fom::create | fom::trunc);
 	if(!e)
 	{
 		LOG_ERROR(LOADER, "Could not create ELF file! (%s)", elf.c_str());
@@ -1283,7 +1283,7 @@ bool CheckDebugSelf(const std::string& self, const std::string& elf)
 		s.seek(elf_offset);
 
 		// Write the real ELF file back.
-		fs::file e(elf, o_write | o_create | o_trunc);
+		fs::file e(elf, fom::write | fom::create | fom::trunc);
 		if(!e)
 		{
 			LOG_ERROR(LOADER, "Could not create ELF file! (%s)", elf.c_str());

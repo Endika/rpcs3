@@ -1,8 +1,7 @@
 #pragma once
 #include "Emu/RSX/GSRender.h"
 
-class NullGSRender
-	: public GSRender
+class NullGSRender final : public GSRender
 {
 public:
 
@@ -10,24 +9,24 @@ public:
 	{
 	}
 
-	virtual ~NullGSRender()
+	virtual ~NullGSRender() override
 	{
 	}
 
 private:
-	virtual void OnInit()
+	virtual void OnInit() override
 	{
 	}
 
-	virtual void OnInitThread()
+	virtual void OnInitThread() override
 	{
 	}
 
-	virtual void OnExitThread()
+	virtual void OnExitThread() override
 	{
 	}
 
-	virtual void OnReset()
+	virtual void OnReset() override
 	{
 	}
 
@@ -39,12 +38,16 @@ private:
 	{
 	}
 
-	virtual void Flip()
+	virtual void Flip() override
 	{
 	}
 
-	virtual void Close()
+	virtual void Close() override
 	{
+		if (joinable())
+		{
+			join();
+		}
 	}
 
 	virtual void semaphorePGRAPHTextureReadRelease(u32 offset, u32 value) override
@@ -58,4 +61,9 @@ private:
 	virtual void semaphorePFIFOAcquire(u32 offset, u32 value) override
 	{
 	}
+
+	virtual void notifyProgramChange() override {}
+	virtual void notifyBlendStateChange() override {}
+	virtual void notifyDepthStencilStateChange() override {}
+	virtual void notifyRasterizerStateChange() override {}
 };

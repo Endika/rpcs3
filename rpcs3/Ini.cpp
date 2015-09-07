@@ -46,26 +46,33 @@ static std::pair<int, int> StringToSize(const std::string& str)
 {
 	std::size_t start = 0, found;
 	std::vector<int> vec;
-	for (int i = 0; i < 2 && (found = str.find_first_of('x', start)); i++) {
-		try {
+
+	for (int i = 0; i < 2 && (found = str.find_first_of('x', start)); i++)
+	{
+		try
+		{
 			vec.push_back(std::stoi(str.substr(start, found == std::string::npos ? found : found - start)));
 		}
-		catch (const std::invalid_argument& e) {
+		catch (const std::invalid_argument& e)
+		{
 			return std::make_pair(-1, -1);
 		}
 		if (found == std::string::npos)
 			break;
 		start = found + 1;
 	}
+
 	if (vec.size() < 2 || vec[0] < 0 || vec[1] < 0)
+	{
 		return std::make_pair(-1, -1);
+	}
 
 	return std::make_pair(vec[0], vec[1]);
 }
 
 static std::string SizeToString(const std::pair<int, int>& size)
 {
-	return fmt::Format("%dx%d", size.first, size.second);
+	return fmt::format("%dx%d", size.first, size.second);
 }
 
 static WindowInfo StringToWindowInfo(const std::string& str)
@@ -93,7 +100,7 @@ static std::string WindowInfoToString(const WindowInfo& wind)
 {
 	const int px = wind.position.first < -wind.size.first ? -1 : wind.position.first;
 	const int py = wind.position.second < -wind.size.second ? -1 : wind.position.second;
-	return fmt::Format("%dx%d:%dx%d", wind.size.first, wind.size.second, px, py);
+	return fmt::format("%dx%d:%dx%d", wind.size.first, wind.size.second, px, py);
 }
 
 //Ini
@@ -109,6 +116,12 @@ Ini::~Ini()
 
 //TODO: saving the file after each change seems like overkill but that's how wx did it
 void Ini::Save(const std::string& section, const std::string& key, int value)
+{
+	static_cast<CSimpleIniCaseA*>(m_config)->SetLongValue(section.c_str(), key.c_str(), value);
+	saveIniFile();
+}
+
+void Ini::Save(const std::string& section, const std::string& key, unsigned int value)
 {
 	static_cast<CSimpleIniCaseA*>(m_config)->SetLongValue(section.c_str(), key.c_str(), value);
 	saveIniFile();
@@ -139,6 +152,11 @@ void Ini::Save(const std::string& section, const std::string& key, WindowInfo va
 }
 
 int Ini::Load(const std::string& section, const std::string& key, const int def_value)
+{
+	return static_cast<CSimpleIniCaseA*>(m_config)->GetLongValue(section.c_str(), key.c_str(), def_value);
+}
+
+unsigned int Ini::Load(const std::string& section, const std::string& key, const unsigned int def_value)
 {
 	return static_cast<CSimpleIniCaseA*>(m_config)->GetLongValue(section.c_str(), key.c_str(), def_value);
 }
