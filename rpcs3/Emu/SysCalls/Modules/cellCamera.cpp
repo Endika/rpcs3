@@ -1,13 +1,13 @@
 #include "stdafx.h"
-#include "Ini.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/IdManager.h"
 #include "Emu/System.h"
+#include "Emu/state.h"
 #include "Emu/SysCalls/Modules.h"
 
 #include "cellCamera.h"
 
-extern Module cellCamera;
+extern Module<> cellCamera;
 
 static const char* get_camera_attr_name(s32 value)
 {
@@ -80,9 +80,9 @@ struct camera_t
 
 s32 cellCameraInit()
 {
-	cellCamera.Warning("cellCameraInit()");
+	cellCamera.warning("cellCameraInit()");
 
-	if (Ini.Camera.GetValue() == 0)
+	if (rpcs3::config.io.camera.value() == io_camera_state::null)
 	{
 		return CELL_CAMERA_ERROR_DEVICE_NOT_FOUND;
 	}
@@ -94,7 +94,9 @@ s32 cellCameraInit()
 		return CELL_CAMERA_ERROR_ALREADY_INIT;
 	}
 
-	if (Ini.CameraType.GetValue() == 1)
+	switch (rpcs3::config.io.camera_type.value())
+	{
+	case io_camera_type::eye_toy:
 	{
 		camera->attr[CELL_CAMERA_SATURATION] = { 164 };
 		camera->attr[CELL_CAMERA_BRIGHTNESS] = { 96 };
@@ -111,7 +113,9 @@ s32 cellCameraInit()
 		camera->attr[CELL_CAMERA_422FLAG] = { 1 };
 		camera->attr[CELL_CAMERA_USBLOAD] = { 4 };
 	}
-	else if (Ini.CameraType.GetValue() == 2)
+	break;
+
+	case io_camera_type::play_station_eye:
 	{
 		camera->attr[CELL_CAMERA_SATURATION] = { 64 };
 		camera->attr[CELL_CAMERA_BRIGHTNESS] = { 8 };
@@ -129,6 +133,12 @@ s32 cellCameraInit()
 		camera->attr[CELL_CAMERA_AGCLOW] = { 48 };
 		camera->attr[CELL_CAMERA_AGCHIGH] = { 64 };
 	}
+
+	break;
+
+	default: break;
+	}
+
 	// TODO: Some other default attributes? Need to check the actual behaviour on a real PS3.
 
 	return CELL_OK;
@@ -136,7 +146,7 @@ s32 cellCameraInit()
 
 s32 cellCameraEnd()
 {
-	cellCamera.Warning("cellCameraEnd()");
+	cellCamera.warning("cellCameraEnd()");
 
 	if (!fxm::remove<camera_t>())
 	{
@@ -172,7 +182,7 @@ s32 cellCameraGetDeviceGUID(s32 dev_num, vm::ptr<u32> guid)
 
 s32 cellCameraGetType(s32 dev_num, vm::ptr<s32> type)
 {
-	cellCamera.Warning("cellCameraGetType(dev_num=%d, type=*0x%x)", dev_num, type);
+	cellCamera.warning("cellCameraGetType(dev_num=%d, type=*0x%x)", dev_num, type);
 
 	const auto camera = fxm::get<camera_t>();
 
@@ -181,11 +191,11 @@ s32 cellCameraGetType(s32 dev_num, vm::ptr<s32> type)
 		return CELL_CAMERA_ERROR_NOT_INIT;
 	}
 
-	switch (Ini.CameraType.GetValue())
+	switch (rpcs3::config.io.camera_type.value())
 	{
-	case 1: *type = CELL_CAMERA_EYETOY; break;
-	case 2: *type = CELL_CAMERA_EYETOY2; break;
-	case 3: *type = CELL_CAMERA_USBVIDEOCLASS; break;
+	case io_camera_type::eye_toy: *type = CELL_CAMERA_EYETOY; break;
+	case io_camera_type::play_station_eye: *type = CELL_CAMERA_EYETOY2; break;
+	case io_camera_type::usb_video_class_1_1: *type = CELL_CAMERA_USBVIDEOCLASS; break;
 	default: *type = CELL_CAMERA_TYPE_UNKNOWN; break;
 	}
 
@@ -194,15 +204,15 @@ s32 cellCameraGetType(s32 dev_num, vm::ptr<s32> type)
 
 s32 cellCameraIsAvailable(s32 dev_num)
 {
-	cellCamera.Todo("cellCameraIsAvailable(dev_num=%d)", dev_num);
+	cellCamera.todo("cellCameraIsAvailable(dev_num=%d)", dev_num);
 	return CELL_OK;
 }
 
 s32 cellCameraIsAttached(s32 dev_num)
 {
-	cellCamera.Warning("cellCameraIsAttached(dev_num=%d)", dev_num);
+	cellCamera.warning("cellCameraIsAttached(dev_num=%d)", dev_num);
 
-	if (Ini.Camera.GetValue() == 1)
+	if (rpcs3::config.io.camera.value() == io_camera_state::connected)
 	{
 		return 1;
 	}
@@ -212,19 +222,19 @@ s32 cellCameraIsAttached(s32 dev_num)
 
 s32 cellCameraIsOpen(s32 dev_num)
 {
-	cellCamera.Todo("cellCameraIsOpen(dev_num=%d)", dev_num);
+	cellCamera.todo("cellCameraIsOpen(dev_num=%d)", dev_num);
 	return CELL_OK;
 }
 
 s32 cellCameraIsStarted(s32 dev_num)
 {
-	cellCamera.Todo("cellCameraIsStarted(dev_num=%d)", dev_num);
+	cellCamera.todo("cellCameraIsStarted(dev_num=%d)", dev_num);
 	return CELL_OK;
 }
 
 s32 cellCameraGetAttribute(s32 dev_num, s32 attrib, vm::ptr<u32> arg1, vm::ptr<u32> arg2)
 {
-	cellCamera.Warning("cellCameraGetAttribute(dev_num=%d, attrib=%d, arg1=*0x%x, arg2=*0x%x)", dev_num, attrib, arg1, arg2);
+	cellCamera.warning("cellCameraGetAttribute(dev_num=%d, attrib=%d, arg1=*0x%x, arg2=*0x%x)", dev_num, attrib, arg1, arg2);
 
 	const auto attr_name = get_camera_attr_name(attrib);
 
@@ -248,7 +258,7 @@ s32 cellCameraGetAttribute(s32 dev_num, s32 attrib, vm::ptr<u32> arg1, vm::ptr<u
 
 s32 cellCameraSetAttribute(s32 dev_num, s32 attrib, u32 arg1, u32 arg2)
 {
-	cellCamera.Warning("cellCameraSetAttribute(dev_num=%d, attrib=%d, arg1=%d, arg2=%d)", dev_num, attrib, arg1, arg2);
+	cellCamera.warning("cellCameraSetAttribute(dev_num=%d, attrib=%d, arg1=%d, arg2=%d)", dev_num, attrib, arg1, arg2);
 
 	const auto attr_name = get_camera_attr_name(attrib);
 
@@ -371,7 +381,7 @@ s32 cellCameraRemoveNotifyEventQueue2(u64 key)
 	return CELL_OK;
 }
 
-Module cellCamera("cellCamera", []()
+Module<> cellCamera("cellCamera", []()
 {
 	REG_FUNC(cellCamera, cellCameraInit);
 	REG_FUNC(cellCamera, cellCameraEnd);

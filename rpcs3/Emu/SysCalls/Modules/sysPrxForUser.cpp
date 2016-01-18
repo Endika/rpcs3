@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 #include "Emu/SysCalls/Modules.h"
@@ -8,7 +7,7 @@
 #include "Emu/SysCalls/lv2/sys_process.h"
 #include "sysPrxForUser.h"
 
-extern Module sysPrxForUser;
+extern Module<> sysPrxForUser;
 
 extern u64 get_system_time();
 
@@ -22,7 +21,7 @@ std::array<std::atomic<u32>, TLS_MAX> g_tls_owners;
 
 void sys_initialize_tls()
 {
-	sysPrxForUser.Log("sys_initialize_tls()");
+	sysPrxForUser.trace("sys_initialize_tls()");
 }
 
 u32 ppu_get_tls(u32 thread)
@@ -54,9 +53,9 @@ u32 ppu_get_tls(u32 thread)
 		if (g_tls_owners[i].compare_exchange_strong(old, thread))
 		{
 			const u32 addr = g_tls_start + i * g_tls_size + TLS_SYS; // get TLS address
-			memset(vm::get_ptr(addr - TLS_SYS), 0, TLS_SYS); // initialize system area with zeros
-			memcpy(vm::get_ptr(addr), vm::get_ptr(Emu.GetTLSAddr()), Emu.GetTLSFilesz()); // initialize from TLS image
-			memset(vm::get_ptr(addr + Emu.GetTLSFilesz()), 0, Emu.GetTLSMemsz() - Emu.GetTLSFilesz()); // fill the rest with zeros
+			std::memset(vm::base(addr - TLS_SYS), 0, TLS_SYS); // initialize system area with zeros
+			std::memcpy(vm::base(addr), vm::base(Emu.GetTLSAddr()), Emu.GetTLSFilesz()); // initialize from TLS image
+			std::memset(vm::base(addr + Emu.GetTLSFilesz()), 0, Emu.GetTLSMemsz() - Emu.GetTLSFilesz()); // fill the rest with zeros
 			return addr;
 		}
 	}
@@ -80,33 +79,33 @@ void ppu_free_tls(u32 thread)
 
 s64 sys_time_get_system_time()
 {
-	sysPrxForUser.Log("sys_time_get_system_time()");
+	sysPrxForUser.trace("sys_time_get_system_time()");
 
 	return get_system_time();
 }
 
 s64 _sys_process_atexitspawn()
 {
-	sysPrxForUser.Log("_sys_process_atexitspawn()");
+	sysPrxForUser.trace("_sys_process_atexitspawn()");
 	return CELL_OK;
 }
 
 s64 _sys_process_at_Exitspawn()
 {
-	sysPrxForUser.Log("_sys_process_at_Exitspawn");
+	sysPrxForUser.trace("_sys_process_at_Exitspawn");
 	return CELL_OK;
 }
 
 s32 sys_interrupt_thread_disestablish(PPUThread& ppu, u32 ih)
 {
-	sysPrxForUser.Todo("sys_interrupt_thread_disestablish(ih=0x%x)", ih);
+	sysPrxForUser.todo("sys_interrupt_thread_disestablish(ih=0x%x)", ih);
 
-	return _sys_interrupt_thread_disestablish(ppu, ih, vm::var<u64>(ppu));
+	return _sys_interrupt_thread_disestablish(ppu, ih, vm::var<u64>{});
 }
 
 s32 sys_process_is_stack(u32 p)
 {
-	sysPrxForUser.Log("sys_process_is_stack(p=0x%x)", p);
+	sysPrxForUser.trace("sys_process_is_stack(p=0x%x)", p);
 
 	// prx: compare high 4 bits with "0xD"
 	return (p >> 28) == 0xD;
@@ -114,7 +113,7 @@ s32 sys_process_is_stack(u32 p)
 
 s32 sys_process_get_paramsfo(vm::ptr<char> buffer)
 {
-	sysPrxForUser.Warning("sys_process_get_paramsfo(buffer=*0x%x)", buffer);
+	sysPrxForUser.warning("sys_process_get_paramsfo(buffer=*0x%x)", buffer);
 
 	// prx: load some data (0x40 bytes) previously set by _sys_process_get_paramsfo syscall
 	return _sys_process_get_paramsfo(buffer);
@@ -122,7 +121,7 @@ s32 sys_process_get_paramsfo(vm::ptr<char> buffer)
 
 s32 sys_get_random_number(vm::ptr<u8> addr, u64 size)
 {
-	sysPrxForUser.Warning("sys_get_random_number(addr=*0x%x, size=%d)", addr, size);
+	sysPrxForUser.warning("sys_get_random_number(addr=*0x%x, size=%d)", addr, size);
 
 	if (size > 4096)
 		size = 4096;
@@ -145,9 +144,13 @@ s32 console_putc()
 	throw EXCEPTION("");
 }
 
-s32 console_write()
+s32 console_write(vm::ptr<char> data, u32 len)
 {
-	throw EXCEPTION("");
+	sysPrxForUser.warning("console_write(data=*0x%x, len=%d)", data, len);
+
+	_log::g_tty_file.log({ data.get_ptr(), len });
+
+	return CELL_OK;
 }
 
 
@@ -163,12 +166,13 @@ extern void sysPrxForUser_sys_spu_init();
 extern void sysPrxForUser_sys_game_init();
 extern void sysPrxForUser_sys_libc_init();
 
-Module sysPrxForUser("sysPrxForUser", []()
+Module<> sysPrxForUser("sysPrxForUser", []()
 {
 	g_tls_start = 0;
+
 	for (auto& v : g_tls_owners)
 	{
-		v.store(0, std::memory_order_relaxed);
+		v = 0;
 	}
 
 	// Setup random number generator

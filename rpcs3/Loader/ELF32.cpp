@@ -1,14 +1,13 @@
 #include "stdafx.h"
-#include "Ini.h"
-#include "Utilities/Log.h"
+#include "ELF32.h"
 #include "Emu/FS/vfsStream.h"
 #include "Emu/Memory/Memory.h"
-#include "ELF32.h"
 #include "Emu/Cell/SPUThread.h"
 #include "Emu/ARMv7/ARMv7Thread.h"
 #include "Emu/ARMv7/ARMv7Decoder.h"
 #include "Emu/ARMv7/PSVFuncList.h"
 #include "Emu/System.h"
+#include "Emu/state.h"
 
 extern void armv7_init_tls();
 
@@ -231,7 +230,7 @@ namespace loader
 							{
 								if (func->module)
 								{
-									LOG_NOTICE(LOADER, "Imported function '%s' in module '%s' (nid=0x%08x, addr=0x%x)", func->name, func->module->GetName(), nid, addr);
+									LOG_NOTICE(LOADER, "Imported function '%s' in module '%s' (nid=0x%08x, addr=0x%x)", func->name, func->module->name, nid, addr);
 								}
 								else
 								{
@@ -323,7 +322,7 @@ namespace loader
 								{
 									LOG_ERROR(LOADER, ".sceRefs: movw writing failed (ref_addr=0x%x, addr=0x%x)", code, code[1]);
 								}
-								else //if (Ini.HLELogging.GetValue())
+								else
 								{
 									LOG_NOTICE(LOADER, ".sceRefs: movw written at 0x%x (ref_addr=0x%x, data=0x%x)", code[1], code, data);
 								}
@@ -339,7 +338,7 @@ namespace loader
 								{
 									LOG_ERROR(LOADER, ".sceRefs: movt writing failed (ref_addr=0x%x, addr=0x%x)", code, code[1]);
 								}
-								else //if (Ini.HLELogging.GetValue())
+								else
 								{
 									LOG_NOTICE(LOADER, ".sceRefs: movt written at 0x%x (ref_addr=0x%x, data=0x%x)", code[1], code, data);
 								}
@@ -353,10 +352,7 @@ namespace loader
 							{
 								data = 0;
 
-								if (Ini.HLELogging.GetValue())
-								{
-									LOG_NOTICE(LOADER, ".sceRefs: zero code found");
-								}
+								LOG_TRACE(LOADER, ".sceRefs: zero code found");
 								break;
 							}
 							default:
@@ -444,7 +440,7 @@ namespace loader
 						if (filesz)
 						{
 							m_stream->Seek(handler::get_stream_offset() + offset);
-							m_stream->Read(vm::get_ptr(vaddr), filesz);
+							m_stream->Read(vm::base(vaddr), filesz);
 						}
 					}
 					break;

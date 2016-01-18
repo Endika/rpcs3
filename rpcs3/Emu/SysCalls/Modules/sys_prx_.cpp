@@ -6,11 +6,11 @@
 #include "Emu/SysCalls/lv2/sys_prx.h"
 #include "sysPrxForUser.h"
 
-extern Module sysPrxForUser;
+extern Module<> sysPrxForUser;
 
 s64 sys_prx_exitspawn_with_level()
 {
-	sysPrxForUser.Log("sys_prx_exitspawn_with_level()");
+	sysPrxForUser.trace("sys_prx_exitspawn_with_level()");
 	return CELL_OK;
 }
 

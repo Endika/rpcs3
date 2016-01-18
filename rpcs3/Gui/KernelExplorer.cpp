@@ -1,5 +1,5 @@
+#include "stdafx.h"
 #include "stdafx_gui.h"
-#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
 
@@ -23,7 +23,7 @@
 #include "KernelExplorer.h"
 
 KernelExplorer::KernelExplorer(wxWindow* parent) 
-	: wxFrame(parent, wxID_ANY, "Kernel Explorer", wxDefaultPosition, wxSize(700, 450))
+	: wxDialog(parent, wxID_ANY, "Kernel Explorer", wxDefaultPosition, wxSize(700, 450))
 {
 	this->SetBackgroundColour(wxColour(240,240,240)); //This fix the ugly background color under Windows
 	wxBoxSizer* s_panel = new wxBoxSizer(wxVERTICAL);

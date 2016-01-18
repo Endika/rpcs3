@@ -1,8 +1,6 @@
 #pragma once
 
-#include <wx/listctrl.h>
-
-class MemoryViewerPanel : public wxFrame
+class MemoryViewerPanel : public wxDialog
 {
 	u32 m_addr;
 	u32 m_colcount;

@@ -4,11 +4,11 @@
 #include "Emu/SysCalls/Modules.h"
 #include "cellSearch.h"
 
-extern Module cellSearch;
+extern Module<> cellSearch;
 
 s32 cellSearchInitialize(CellSearchMode mode, u32 container, vm::ptr<CellSearchSystemCallback> func, vm::ptr<u32> userData)
 {
-	cellSearch.Warning("cellSearchInitialize()");
+	cellSearch.warning("cellSearchInitialize()");
 
 	// TODO: Store the arguments somewhere so we can use them later.
 
@@ -17,7 +17,7 @@ s32 cellSearchInitialize(CellSearchMode mode, u32 container, vm::ptr<CellSearchS
 
 s32 cellSearchFinalize()
 {
-	cellSearch.Warning("cellSearchFinalize()");
+	cellSearch.warning("cellSearchFinalize()");
 
 	return CELL_OK;
 }
@@ -130,7 +130,7 @@ s32 cellSearchEnd()
 	return CELL_OK;
 }
 
-Module cellSearch("cellSearch", []()
+Module<> cellSearch("cellSearch", []()
 {
 	REG_FUNC(cellSearch, cellSearchInitialize);
 	REG_FUNC(cellSearch, cellSearchFinalize);

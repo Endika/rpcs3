@@ -35,29 +35,8 @@
 #include <stdlib.h>
 #include <cstdint>
 
-#ifndef __APPLE__
-#include <malloc.h>
-#endif
-
 #define _fpclass(x) std::fpclassify(x)
-#define _byteswap_ushort(x) __builtin_bswap16(x)
-#define _byteswap_ulong(x) __builtin_bswap32(x)
-#define _byteswap_uint64(x) __builtin_bswap64(x)
 #define INFINITE 0xFFFFFFFF
-
-inline uint64_t __umulh(uint64_t a, uint64_t b)
-{
-	uint64_t result;
-	__asm__("mulq %[b]" : "=d" (result) : [a] "a" (a), [b] "rm" (b));
-	return result;
-}
-
-inline int64_t  __mulh(int64_t a, int64_t b)
-{
-	int64_t result;
-	__asm__("imulq %[b]" : "=d" (result) : [a] "a" (a), [b] "rm" (b));
-	return result;
-}
 
 #ifdef __APPLE__
 
@@ -81,414 +60,186 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp);
 #endif /* __GNUG__ */
 
 #if defined(_MSC_VER)
+
 // Unsigned 128-bit integer implementation
-struct alignas(16) uint128_t
+struct alignas(16) u128
 {
-	uint64_t lo, hi;
+	std::uint64_t lo, hi;
 
-	uint128_t& operator ++()
+	u128() = default;
+
+	u128(const u128&) = default;
+
+	u128(std::uint64_t l)
+		: lo(l)
+		, hi(0)
 	{
-		if (!++lo) ++hi;
-		return *this;
 	}
 
-	uint128_t& operator --()
+	u128 operator +(const u128& r) const
 	{
-		if (!lo--) hi--;
-		return *this;
-	}
-
-	uint128_t operator ++(int)
-	{
-		uint128_t value = *this;
-		if (!++lo) ++hi;
+		u128 value;
+		_addcarry_u64(_addcarry_u64(0, r.lo, lo, &value.lo), r.hi, hi, &value.hi);
 		return value;
 	}
 
-	uint128_t operator --(int)
+	friend u128 operator +(const u128& l, std::uint64_t r)
 	{
-		uint128_t value = *this;
-		if (!lo--) hi--;
+		u128 value;
+		_addcarry_u64(_addcarry_u64(0, r, l.lo, &value.lo), l.hi, 0, &value.hi);
 		return value;
+	}
+
+	friend u128 operator +(std::uint64_t l, const u128& r)
+	{
+		u128 value;
+		_addcarry_u64(_addcarry_u64(0, r.lo, l, &value.lo), 0, r.hi, &value.hi);
+		return value;
+	}
+
+	u128 operator -(const u128& r) const
+	{
+		u128 value;
+		_subborrow_u64(_subborrow_u64(0, r.lo, lo, &value.lo), r.hi, hi, &value.hi);
+		return value;
+	}
+
+	friend u128 operator -(const u128& l, std::uint64_t r)
+	{
+		u128 value;
+		_subborrow_u64(_subborrow_u64(0, r, l.lo, &value.lo), 0, l.hi, &value.hi);
+		return value;
+	}
+
+	friend u128 operator -(std::uint64_t l, const u128& r)
+	{
+		u128 value;
+		_subborrow_u64(_subborrow_u64(0, r.lo, l, &value.lo), r.hi, 0, &value.hi);
+		return value;
+	}
+
+	u128 operator +() const
+	{
+		return *this;
+	}
+
+	u128 operator -() const
+	{
+		u128 value;
+		_subborrow_u64(_subborrow_u64(0, lo, 0, &value.lo), hi, 0, &value.hi);
+		return value;
+	}
+
+	u128& operator ++()
+	{
+		_addcarry_u64(_addcarry_u64(0, 1, lo, &lo), 0, hi, &hi);
+		return *this;
+	}
+
+	u128 operator ++(int)
+	{
+		u128 value = *this;
+		_addcarry_u64(_addcarry_u64(0, 1, lo, &lo), 0, hi, &hi);
+		return value;
+	}
+
+	u128& operator --()
+	{
+		_subborrow_u64(_subborrow_u64(0, 1, lo, &lo), 0, hi, &hi);
+		return *this;
+	}
+
+	u128 operator --(int)
+	{
+		u128 value = *this;
+		_subborrow_u64(_subborrow_u64(0, 1, lo, &lo), 0, hi, &hi);
+		return value;
+	}
+
+	u128 operator ~() const
+	{
+		u128 value;
+		value.lo = ~lo;
+		value.hi = ~hi;
+		return value;
+	}
+
+	u128 operator &(const u128& r) const
+	{
+		u128 value;
+		value.lo = lo & r.lo;
+		value.hi = hi & r.hi;
+		return value;
+	}
+
+	u128 operator |(const u128& r) const
+	{
+		u128 value;
+		value.lo = lo | r.lo;
+		value.hi = hi | r.hi;
+		return value;
+	}
+
+	u128 operator ^(const u128& r) const
+	{
+		u128 value;
+		value.lo = lo ^ r.lo;
+		value.hi = hi ^ r.hi;
+		return value;
+	}
+
+	u128& operator +=(const u128& r)
+	{
+		_addcarry_u64(_addcarry_u64(0, r.lo, lo, &lo), r.hi, hi, &hi);
+		return *this;
+	}
+
+	u128& operator +=(uint64_t r)
+	{
+		_addcarry_u64(_addcarry_u64(0, r, lo, &lo), 0, hi, &hi);
+		return *this;
+	}
+
+	u128& operator &=(const u128& r)
+	{
+		lo &= r.lo;
+		hi &= r.hi;
+		return *this;
+	}
+
+	u128& operator |=(const u128& r)
+	{
+		lo |= r.lo;
+		hi |= r.hi;
+		return *this;
+	}
+
+	u128& operator ^=(const u128& r)
+	{
+		lo ^= r.lo;
+		hi ^= r.hi;
+		return *this;
 	}
 };
-
-using __uint128_t = uint128_t;
 #endif
 
-// SFINAE Helper type
-template<typename T, typename TT = void> using if_integral_t = std::enable_if_t<std::is_integral<T>::value || std::is_same<std::remove_cv_t<T>, __uint128_t>::value, TT>;
-
-#if defined(__GNUG__)
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_val_compare_and_swap(volatile T* dest, T2 comp, T2 exch)
-{
-	return __sync_val_compare_and_swap(dest, comp, exch);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, bool> sync_bool_compare_and_swap(volatile T* dest, T2 comp, T2 exch)
-{
-	return __sync_bool_compare_and_swap(dest, comp, exch);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_lock_test_and_set(volatile T* dest, T2 value)
-{
-	return __sync_lock_test_and_set(dest, value);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_fetch_and_add(volatile T* dest, T2 value)
-{
-	return __sync_fetch_and_add(dest, value);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_fetch_and_sub(volatile T* dest, T2 value)
-{
-	return __sync_fetch_and_sub(dest, value);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_fetch_and_or(volatile T* dest, T2 value)
-{
-	return __sync_fetch_and_or(dest, value);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_fetch_and_and(volatile T* dest, T2 value)
-{
-	return __sync_fetch_and_and(dest, value);
-}
-
-template<typename T, typename T2> inline if_integral_t<T, T> sync_fetch_and_xor(volatile T* dest, T2 value)
-{
-	return __sync_fetch_and_xor(dest, value);
-}
-
-#endif /* __GNUG__ */
-
-#if defined(_MSC_VER)
-
-// atomic compare and swap functions
-
-inline uint8_t sync_val_compare_and_swap(volatile uint8_t* dest, uint8_t comp, uint8_t exch)
-{
-	return _InterlockedCompareExchange8((volatile char*)dest, exch, comp);
-}
-
-inline uint16_t sync_val_compare_and_swap(volatile uint16_t* dest, uint16_t comp, uint16_t exch)
-{
-	return _InterlockedCompareExchange16((volatile short*)dest, exch, comp);
-}
-
-inline uint32_t sync_val_compare_and_swap(volatile uint32_t* dest, uint32_t comp, uint32_t exch)
-{
-	return _InterlockedCompareExchange((volatile long*)dest, exch, comp);
-}
-
-inline uint64_t sync_val_compare_and_swap(volatile uint64_t* dest, uint64_t comp, uint64_t exch)
-{
-	return _InterlockedCompareExchange64((volatile long long*)dest, exch, comp);
-}
-
-inline uint128_t sync_val_compare_and_swap(volatile uint128_t* dest, uint128_t comp, uint128_t exch)
-{
-	_InterlockedCompareExchange128((volatile long long*)dest, exch.hi, exch.lo, (long long*)&comp);
-	return comp;
-}
-
-inline bool sync_bool_compare_and_swap(volatile uint8_t* dest, uint8_t comp, uint8_t exch)
-{
-	return (uint8_t)_InterlockedCompareExchange8((volatile char*)dest, exch, comp) == comp;
-}
-
-inline bool sync_bool_compare_and_swap(volatile uint16_t* dest, uint16_t comp, uint16_t exch)
-{
-	return (uint16_t)_InterlockedCompareExchange16((volatile short*)dest, exch, comp) == comp;
-}
-
-inline bool sync_bool_compare_and_swap(volatile uint32_t* dest, uint32_t comp, uint32_t exch)
-{
-	return (uint32_t)_InterlockedCompareExchange((volatile long*)dest, exch, comp) == comp;
-}
-
-inline bool sync_bool_compare_and_swap(volatile uint64_t* dest, uint64_t comp, uint64_t exch)
-{
-	return (uint64_t)_InterlockedCompareExchange64((volatile long long*)dest, exch, comp) == comp;
-}
-
-inline bool sync_bool_compare_and_swap(volatile uint128_t* dest, uint128_t comp, uint128_t exch)
-{
-	return _InterlockedCompareExchange128((volatile long long*)dest, exch.hi, exch.lo, (long long*)&comp) != 0;
-}
-
-// atomic exchange functions
-
-inline uint8_t sync_lock_test_and_set(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedExchange8((volatile char*)dest, value);
-}
-
-inline uint16_t sync_lock_test_and_set(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedExchange16((volatile short*)dest, value);
-}
-
-inline uint32_t sync_lock_test_and_set(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedExchange((volatile long*)dest, value);
-}
-
-inline uint64_t sync_lock_test_and_set(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedExchange64((volatile long long*)dest, value);
-}
-
-inline uint128_t sync_lock_test_and_set(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		if (sync_bool_compare_and_swap(dest, old, value)) return old;
-	}
-}
-
-// atomic add functions
-
-inline uint8_t sync_fetch_and_add(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedExchangeAdd8((volatile char*)dest, value);
-}
-
-inline uint16_t sync_fetch_and_add(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedExchangeAdd16((volatile short*)dest, value);
-}
-
-inline uint32_t sync_fetch_and_add(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedExchangeAdd((volatile long*)dest, value);
-}
-
-inline uint64_t sync_fetch_and_add(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedExchangeAdd64((volatile long long*)dest, value);
-}
-
-inline uint128_t sync_fetch_and_add(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		uint128_t _new;
-		_new.lo = old.lo + value.lo;
-		_new.hi = old.hi + value.hi + (_new.lo < value.lo);
-
-		if (sync_bool_compare_and_swap(dest, old, _new)) return old;
-	}
-}
-
-// atomic sub functions
-
-inline uint8_t sync_fetch_and_sub(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedExchangeAdd8((volatile char*)dest, -(char)value);
-}
-
-inline uint16_t sync_fetch_and_sub(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedExchangeAdd16((volatile short*)dest, -(short)value);
-}
-
-inline uint32_t sync_fetch_and_sub(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedExchangeAdd((volatile long*)dest, -(long)value);
-}
-
-inline uint64_t sync_fetch_and_sub(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedExchangeAdd64((volatile long long*)dest, -(long long)value);
-}
-
-inline uint128_t sync_fetch_and_sub(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		uint128_t _new;
-		_new.lo = old.lo - value.lo;
-		_new.hi = old.hi - value.hi - (old.lo < value.lo);
-
-		if (sync_bool_compare_and_swap(dest, old, _new)) return old;
-	}
-}
-
-// atomic `bitwise or` functions
-
-inline uint8_t sync_fetch_and_or(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedOr8((volatile char*)dest, value);
-}
-
-inline uint16_t sync_fetch_and_or(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedOr16((volatile short*)dest, value);
-}
-
-inline uint32_t sync_fetch_and_or(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedOr((volatile long*)dest, value);
-}
-
-inline uint64_t sync_fetch_and_or(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedOr64((volatile long long*)dest, value);
-}
-
-inline uint128_t sync_fetch_and_or(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		uint128_t _new;
-		_new.lo = old.lo | value.lo;
-		_new.hi = old.hi | value.hi;
-
-		if (sync_bool_compare_and_swap(dest, old, _new)) return old;
-	}
-}
-
-// atomic `bitwise and` functions
-
-inline uint8_t sync_fetch_and_and(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedAnd8((volatile char*)dest, value);
-}
-
-inline uint16_t sync_fetch_and_and(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedAnd16((volatile short*)dest, value);
-}
-
-inline uint32_t sync_fetch_and_and(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedAnd((volatile long*)dest, value);
-}
-
-inline uint64_t sync_fetch_and_and(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedAnd64((volatile long long*)dest, value);
-}
-
-inline uint128_t sync_fetch_and_and(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		uint128_t _new;
-		_new.lo = old.lo & value.lo;
-		_new.hi = old.hi & value.hi;
-
-		if (sync_bool_compare_and_swap(dest, old, _new)) return old;
-	}
-}
-
-// atomic `bitwise xor` functions
-
-inline uint8_t sync_fetch_and_xor(volatile uint8_t* dest, uint8_t value)
-{
-	return _InterlockedXor8((volatile char*)dest, value);
-}
-
-inline uint16_t sync_fetch_and_xor(volatile uint16_t* dest, uint16_t value)
-{
-	return _InterlockedXor16((volatile short*)dest, value);
-}
-
-inline uint32_t sync_fetch_and_xor(volatile uint32_t* dest, uint32_t value)
-{
-	return _InterlockedXor((volatile long*)dest, value);
-}
-
-inline uint64_t sync_fetch_and_xor(volatile uint64_t* dest, uint64_t value)
-{
-	return _InterlockedXor64((volatile long long*)dest, value);
-}
-
-inline uint128_t sync_fetch_and_xor(volatile uint128_t* dest, uint128_t value)
-{
-	while (true)
-	{
-		uint128_t old;
-		old.lo = dest->lo;
-		old.hi = dest->hi;
-
-		uint128_t _new;
-		_new.lo = old.lo ^ value.lo;
-		_new.hi = old.hi ^ value.hi;
-
-		if (sync_bool_compare_and_swap(dest, old, _new)) return old;
-	}
-}
-
-#endif /* _MSC_VER */
-
-inline uint32_t cntlz32(uint32_t arg)
+inline std::uint32_t cntlz32(std::uint32_t arg)
 {
 #if defined(_MSC_VER)
 	unsigned long res;
-	if (!_BitScanReverse(&res, arg))
-	{
-		return 32;
-	}
-	else
-	{
-		return res ^ 31;
-	}
+	return _BitScanReverse(&res, arg) ? res ^ 31 : 32;
 #else
-	if (arg)
-	{
-		return __builtin_clzll((uint64_t)arg) - 32;
-	}
-	else
-	{
-		return 32;
-	}
+	return arg ? __builtin_clzll(arg) - 32 : 32;
 #endif
 }
 
-inline uint64_t cntlz64(uint64_t arg)
+inline std::uint64_t cntlz64(std::uint64_t arg)
 {
 #if defined(_MSC_VER)
 	unsigned long res;
-	if (!_BitScanReverse64(&res, arg))
-	{
-		return 64;
-	}
-	else
-	{
-		return res ^ 63;
-	}
+	return _BitScanReverse64(&res, arg) ? res ^ 63 : 64;
 #else
-	if (arg)
-	{
-		return __builtin_clzll(arg);
-	}
-	else
-	{
-		return 64;
-	}
+	return arg ? __builtin_clzll(arg) : 64;
 #endif
 }
 

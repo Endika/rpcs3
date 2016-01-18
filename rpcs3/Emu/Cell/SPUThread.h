@@ -147,13 +147,13 @@ struct spu_channel_t
 		u32 value;
 	};
 
-	atomic_t<sync_var_t> sync_var;
+	atomic_t<sync_var_t> data;
 
 public:
 	// returns true on success
 	bool try_push(u32 value)
 	{
-		const auto old = sync_var.atomic_op([=](sync_var_t& data)
+		const auto old = data.atomic_op([=](sync_var_t& data)
 		{
 			if ((data.wait = data.count) == false)
 			{
@@ -168,7 +168,7 @@ public:
 	// push performing bitwise OR with previous value, may require notification
 	void push_or(u32 value)
 	{
-		const auto old = sync_var.atomic_op([=](sync_var_t& data)
+		const auto old = data.atomic_op([=](sync_var_t& data)
 		{
 			data.count = true;
 			data.wait = false;
@@ -181,7 +181,7 @@ public:
 	// push unconditionally (overwriting previous value), may require notification
 	void push(u32 value)
 	{
-		const auto old = sync_var.atomic_op([=](sync_var_t& data)
+		const auto old = data.atomic_op([=](sync_var_t& data)
 		{
 			data.count = true;
 			data.wait = false;
@@ -194,7 +194,7 @@ public:
 	// returns true on success and loaded value
 	std::tuple<bool, u32> try_pop()
 	{
-		const auto old = sync_var.atomic_op([](sync_var_t& data)
+		const auto old = data.atomic_op([](sync_var_t& data)
 		{
 			data.wait = !data.count;
 			data.count = false;
@@ -207,7 +207,7 @@ public:
 	// pop unconditionally (loading last value), may require notification
 	u32 pop()
 	{
-		const auto old = sync_var.atomic_op([](sync_var_t& data)
+		const auto old = data.atomic_op([](sync_var_t& data)
 		{
 			data.wait = false;
 			data.count = false;
@@ -221,17 +221,17 @@ public:
 
 	void set_value(u32 value, bool count = true)
 	{
-		sync_var.store({ count, false, value });
+		data.store({ count, false, value });
 	}
 
-	u32 get_value() volatile
+	u32 get_value()
 	{
-		return sync_var.data.value;
+		return data.load().value;
 	}
 
-	u32 get_count() volatile
+	u32 get_count()
 	{
-		return sync_var.data.count;
+		return data.load().count;
 	}
 };
 
@@ -250,22 +250,22 @@ struct spu_channel_4_t
 		u32 value2;
 	};
 
-	atomic_t<sync_var_t> sync_var;
+	atomic_t<sync_var_t> values;
 	atomic_t<u32> value3;
 
 public:
 	void clear()
 	{
-		sync_var = {};
-		value3 = {};
+		values = sync_var_t{};
+		value3 = 0;
 	}
 
 	// push unconditionally (overwriting latest value), returns true if needs signaling
 	bool push(u32 value)
 	{
-		value3.exchange(value);
+		value3 = value; _mm_sfence();
 
-		return sync_var.atomic_op([=](sync_var_t& data) -> bool
+		return values.atomic_op([=](sync_var_t& data) -> bool
 		{
 			switch (data.count++)
 			{
@@ -289,7 +289,7 @@ public:
 	// returns true on success and two u32 values: data and count after removing the first element
 	std::tuple<bool, u32, u32> try_pop()
 	{
-		return sync_var.atomic_op([this](sync_var_t& data)
+		return values.atomic_op([this](sync_var_t& data)
 		{
 			const auto result = std::make_tuple(data.count != 0, u32{ data.value0 }, u32{ data.count - 1u });
 
@@ -300,7 +300,8 @@ public:
 
 				data.value0 = data.value1;
 				data.value1 = data.value2;
-				data.value2 = value3.load_sync();
+				_mm_lfence();
+				data.value2 = this->value3;
 			}
 			else
 			{
@@ -311,19 +312,15 @@ public:
 		});
 	}
 
-	u32 get_count() volatile
+	u32 get_count()
 	{
-		return sync_var.data.count;
+		return values.raw().count;
 	}
 
 	void set_values(u32 count, u32 value0, u32 value1 = 0, u32 value2 = 0, u32 value3 = 0)
 	{
-		sync_var.data.waiting = 0;
-		sync_var.data.count = count;
-		sync_var.data.value0 = value0;
-		sync_var.data.value1 = value1;
-		sync_var.data.value2 = value2;
-		this->value3.store(value3);
+		this->values.raw() = { 0, count, value0, value1, value2 };
+		this->value3 = value3;
 	}
 };
 
@@ -337,6 +334,13 @@ struct spu_int_ctrl_t
 	void set(u64 ints);
 
 	void clear(u64 ints);
+
+	void clear()
+	{
+		mask = 0;
+		stat = 0;
+		tag = nullptr;
+	}
 };
 
 struct spu_imm_table_t
@@ -614,27 +618,22 @@ public:
 	void stop_and_signal(u32 code);
 	void halt();
 
-	u8 read8(u32 lsa) const { return vm::read8(lsa + offset); }
-	u16 read16(u32 lsa) const { return vm::ps3::read16(lsa + offset); }
-	u32 read32(u32 lsa) const { return vm::ps3::read32(lsa + offset); }
-	u64 read64(u32 lsa) const { return vm::ps3::read64(lsa + offset); }
-	v128 read128(u32 lsa) const { return vm::ps3::read128(lsa + offset); }
+	// Convert specified SPU LS address to a pointer of specified (possibly converted to BE) type
+	template<typename T> inline to_be_t<T>* _ptr(u32 lsa)
+	{
+		return static_cast<to_be_t<T>*>(vm::base(offset + lsa));
+	}
 
-	void write8(u32 lsa, u8 data) const { vm::write8(lsa + offset, data); }
-	void write16(u32 lsa, u16 data) const { vm::ps3::write16(lsa + offset, data); }
-	void write32(u32 lsa, u32 data) const { vm::ps3::write32(lsa + offset, data); }
-	void write64(u32 lsa, u64 data) const { vm::ps3::write64(lsa + offset, data); }
-	void write128(u32 lsa, v128 data) const { vm::ps3::write128(lsa + offset, data); }
-
-	void write16(u32 lsa, be_t<u16> data) const { vm::ps3::write16(lsa + offset, data); }
-	void write32(u32 lsa, be_t<u32> data) const { vm::ps3::write32(lsa + offset, data); }
-	void write64(u32 lsa, be_t<u64> data) const { vm::ps3::write64(lsa + offset, data); }
-	void write128(u32 lsa, be_t<v128> data) const { vm::ps3::write128(lsa + offset, data); }
+	// Convert specified SPU LS address to a reference of specified (possibly converted to BE) type
+	template<typename T> inline to_be_t<T>& _ref(u32 lsa)
+	{
+		return *_ptr<T>(lsa);
+	}
 
 	void RegisterHleFunction(u32 addr, std::function<bool(SPUThread & SPU)> function)
 	{
 		m_addr_to_hle_function_map[addr] = function;
-		write32(addr, 0x00000003); // STOP 3
+		_ref<u32>(addr) = 0x00000003; // STOP 3
 	}
 
 	void UnregisterHleFunction(u32 addr)
@@ -662,7 +661,7 @@ public:
 	u32 recursion_level = 0;
 
 protected:
-	SPUThread(CPUThreadType type, const std::string& name, std::function<std::string()> thread_name, u32 index, u32 offset);
+	SPUThread(CPUThreadType type, const std::string& name, u32 index, u32 offset);
 
 public:
 	SPUThread(const std::string& name, u32 index);
@@ -670,11 +669,12 @@ public:
 
 	virtual bool is_paused() const override;
 
+	virtual std::string get_name() const override;
 	virtual void dump_info() const override;
 	virtual u32 get_pc() const override { return pc; }
 	virtual u32 get_offset() const override { return offset; }
 	virtual void do_run() override;
-	virtual void task() override;
+	virtual void cpu_task() override;
 
 	virtual void init_regs() override;
 	virtual void init_stack() override;

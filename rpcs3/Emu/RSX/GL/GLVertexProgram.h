@@ -9,6 +9,7 @@ struct GLVertexDecompilerThread : public VertexProgramDecompiler
 	std::string &m_shader;
 protected:
 	virtual std::string getFloatTypeName(size_t elementCount) override;
+	std::string getIntTypeName(size_t elementCount) override;
 	virtual std::string getFunction(FUNCTION) override;
 	virtual std::string compareFunction(COMPARE, const std::string&, const std::string&) override;
 
@@ -19,8 +20,8 @@ protected:
 	virtual void insertMainStart(std::stringstream &OS) override;
 	virtual void insertMainEnd(std::stringstream &OS) override;
 public:
-	GLVertexDecompilerThread(std::vector<u32>& data, std::string& shader, ParamArray& parr)
-		: VertexProgramDecompiler(data)
+	GLVertexDecompilerThread(const RSXVertexProgram &prog, std::string& shader, ParamArray& parr)
+		: VertexProgramDecompiler(prog)
 		, m_shader(shader)
 	{
 	}
@@ -38,7 +39,7 @@ public:
 	u32 id = 0;
 	std::string shader;
 
-	void Decompile(RSXVertexProgram& prog);
+	void Decompile(const RSXVertexProgram& prog);
 	void Compile();
 
 private:

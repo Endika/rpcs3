@@ -1,276 +1,150 @@
-#include "stdafx.h"
-#include "rPlatform.h"
-#include "Log.h"
-#include "rMsgBox.h"
-#include <iostream>
-#include <cinttypes>
+﻿#include "stdafx.h"
 #include "Thread.h"
 #include "File.h"
+#include "Log.h"
 
-using namespace Log;
-
-std::unique_ptr<LogManager> g_log_manager;
-
-u32 LogMessage::size() const
-{
-	//1 byte for NULL terminator
-	return (u32)(sizeof(LogMessage::size_type) + sizeof(LogType) + sizeof(Severity) + sizeof(std::string::value_type) * mText.size() + 1);
-}
-
-void LogMessage::serialize(char *output) const
-{
-	LogMessage::size_type size = this->size();
-	memcpy(output, &size, sizeof(LogMessage::size_type));
-	output += sizeof(LogMessage::size_type);
-	memcpy(output, &mType, sizeof(LogType));
-	output += sizeof(LogType);
-	memcpy(output, &mServerity, sizeof(Severity));
-	output += sizeof(Severity);
-	memcpy(output, mText.c_str(), mText.size() );
-	output += sizeof(std::string::value_type)*mText.size();
-	*output = '\0';
-
-}
-LogMessage LogMessage::deserialize(char *input, u32* size_out)
-{
-	LogMessage msg;
-	LogMessage::size_type msgSize = *(reinterpret_cast<LogMessage::size_type*>(input));
-	input += sizeof(LogMessage::size_type);
-	msg.mType = *(reinterpret_cast<LogType*>(input));
-	input += sizeof(LogType);
-	msg.mServerity = *(reinterpret_cast<Severity*>(input));
-	input += sizeof(Severity);
-	if (msgSize > 9000)
-	{
-		int wtf = 6;
-	}
-	msg.mText.append(input, msgSize - 1 - sizeof(Severity) - sizeof(LogType));
-	if (size_out){(*size_out) = msgSize;}
-	return msg;
-}
-
-
-
-LogChannel::LogChannel() : LogChannel("unknown")
-{}
-
-LogChannel::LogChannel(const std::string& name) :
-	  name(name)
-	, mEnabled(true)
-	, mLogLevel(Severity::Warning)
-{}
-
-void LogChannel::log(const LogMessage &msg)
-{
-	std::lock_guard<std::mutex> lock(mListenerLock);
-	for (auto &listener : mListeners)
-	{
-		listener->log(msg);
-	}
-}
-
-void LogChannel::addListener(std::shared_ptr<LogListener> listener)
-{
-	std::lock_guard<std::mutex> lock(mListenerLock);
-	mListeners.insert(listener);
-}
-void LogChannel::removeListener(std::shared_ptr<LogListener> listener)
-{
-	std::lock_guard<std::mutex> lock(mListenerLock);
-	mListeners.erase(listener);
-}
-
-struct CoutListener : LogListener
-{
-	void log(const LogMessage &msg) override
-	{
-		std::cerr << msg.mText << std::endl;
-	}
-};
-
-struct FileListener : LogListener
-{
-	fs::file mFile;
-	bool mPrependChannelName;
-
-	FileListener(const std::string& name = _PRGNAME_, bool prependChannel = true)
-		: mFile(rPlatform::getConfigDir() + name + ".log", fom::write | fom::create | fom::trunc)
-		, mPrependChannelName(prependChannel)
-	{
-		if (!mFile)
-		{
-			rMessageBox("Can't create log file! (" + name + ".log)", "Error", rICON_ERROR);
-		}
-	}
-
-	void log(const LogMessage &msg) override
-	{
-		std::string text = msg.mText;
-		if (mPrependChannelName)
-		{
-			text.insert(0, gTypeNameTable[static_cast<u32>(msg.mType)].mName);
-			
-			if (msg.mType == Log::TTY)
-			{
-				text = fmt::escape(text);
-				if (text[text.length() - 1] != '\n')
-				{
-					text += '\n';
-				}
-			}
-		}
-
-		mFile.write(text.c_str(), text.size());
-	}
-};
-
-LogManager::LogManager() 
-#ifdef BUFFERED_LOGGING
-	: mExiting(false), mLogConsumer()
+#ifdef _WIN32
+#include <Windows.h>
 #endif
+
+namespace _log
 {
-	auto it = mChannels.begin();
-	std::shared_ptr<LogListener> listener(new FileListener());
-	for (const LogTypeName& name : gTypeNameTable)
+	logger& get_logger()
 	{
-		it->name = name.mName;
-		it->addListener(listener);
-		it++;
+		// Use magic static for global logger instance
+		static logger instance;
+		return instance;
 	}
-	std::shared_ptr<LogListener> TTYListener(new FileListener("TTY",false));
-	getChannel(TTY).addListener(TTYListener);
-#ifdef BUFFERED_LOGGING
-	mLogConsumer = std::thread(&LogManager::consumeLog, this);
-#endif
+
+	file_listener g_log_file(_PRGNAME_ ".log");
+
+	file_writer g_tty_file("TTY.log");
+
+	channel GENERAL("", level::notice);
+	channel LOADER("LDR", level::notice);
+	channel MEMORY("MEM", level::notice);
+	channel RSX("RSX", level::notice);
+	channel HLE("HLE", level::notice);
+	channel PPU("PPU", level::notice);
+	channel SPU("SPU", level::notice);
+	channel ARMv7("ARMv7");
 }
 
-LogManager::~LogManager()
+_log::listener::listener()
 {
-#ifdef BUFFERED_LOGGING
-	mExiting = true;
-	mBufferReady.notify_all();
-	mLogConsumer.join();
+	// Register self
+	get_logger().add_listener(this);
 }
 
-void LogManager::consumeLog()
+_log::listener::~listener()
 {
-	std::unique_lock<std::mutex> lock(mStatusMut);
-	while (!mExiting)
-	{
-		mBufferReady.wait(lock);
-		mBuffer.lockGet();
-		size_t size = mBuffer.size();
-		std::vector<char> local_messages(size);
-		mBuffer.popN(&local_messages.front(), size);
-		mBuffer.unlockGet();
-
-		u32 cursor = 0;
-		u32 removed = 0;
-		while (cursor < size)
-		{
-			Log::LogMessage msg = Log::LogMessage::deserialize(local_messages.data() + cursor, &removed);
-			cursor += removed;
-			getChannel(msg.mType).log(msg);
-		}
-	}
-#endif
+	// Unregister self
+	get_logger().remove_listener(this);
 }
 
-void LogManager::log(LogMessage msg)
+_log::channel::channel(const std::string& name, _log::level init_level)
+	: name{ name }
+	, enabled{ init_level }
 {
-	//don't do any formatting changes or filtering to the TTY output since we
-	//use the raw output to do diffs with the output of a real PS3 and some
-	//programs write text in single bytes to the console
-	if (msg.mType != TTY)
+	// TODO: register config property "name" associated with "enabled" member
+}
+
+void _log::logger::add_listener(_log::listener* listener)
+{
+	std::lock_guard<shared_mutex> lock(m_mutex);
+
+	m_listeners.emplace(listener);
+}
+
+void _log::logger::remove_listener(_log::listener* listener)
+{
+	std::lock_guard<shared_mutex> lock(m_mutex);
+
+	m_listeners.erase(listener);
+}
+
+void _log::logger::broadcast(const _log::channel& ch, _log::level sev, const std::string& text) const
+{
+	reader_lock lock(m_mutex);
+
+	for (auto listener : m_listeners)
 	{
-		std::string prefix;
-		switch (msg.mServerity)
-		{
-		case Severity::Success:
-			prefix = "S ";
-			break;
-		case Severity::Notice:
-			prefix = "! ";
-			break;
-		case Severity::Warning:
-			prefix = "W ";
-			break;
-		case Severity::Error:
-			prefix = "E ";
-			break;
-		}
-		if (auto thr = get_current_thread_ctrl())
-		{
-			prefix += "{" + thr->get_name() + "} ";
-		}
-		msg.mText.insert(0, prefix);
-		msg.mText.append(1,'\n');
+		listener->log(ch, sev, text);
 	}
-#ifdef BUFFERED_LOGGING
-	size_t size = msg.size();
-	std::vector<char> temp_buffer(size);
-	msg.serialize(temp_buffer.data());
-	mBuffer.pushRange(temp_buffer.begin(), temp_buffer.end());
-	mBufferReady.notify_one();
+}
+
+void _log::broadcast(const _log::channel& ch, _log::level sev, const std::string& text)
+{
+	get_logger().broadcast(ch, sev, text);
+}
+
+_log::file_writer::file_writer(const std::string& name)
+{
+	try
+	{
+		if (!m_file.open(fs::get_config_dir() + name, fom::rewrite | fom::append))
+		{
+			throw EXCEPTION("Can't create log file %s (error %d)", name, errno);
+		}
+	}
+	catch (const fmt::exception& e)
+	{
+#ifdef _WIN32
+		MessageBoxA(0, e.what(), "_log::file_writer() failed", MB_ICONERROR);
 #else
-	mChannels[static_cast<u32>(msg.mType)].log(msg);
+		std::printf("_log::file_writer() failed: %s\n", e.what());
 #endif
-}
-
-void LogManager::addListener(std::shared_ptr<LogListener> listener)
-{
-	for (auto& channel : mChannels)
-	{
-		channel.addListener(listener);
 	}
 }
 
-void LogManager::removeListener(std::shared_ptr<LogListener> listener)
+void _log::file_writer::log(const std::string& text)
 {
-	for (auto& channel : mChannels)
-	{
-		channel.removeListener(listener);
-	}
+	m_file.write(text);
 }
 
-LogManager& LogManager::getInstance()
+std::size_t _log::file_writer::size() const
 {
-	if (!g_log_manager)
-	{
-		g_log_manager.reset(new LogManager());
-	}
-
-	return *g_log_manager;
+	return m_file.seek(0, fs::seek_cur);
 }
 
-LogChannel &LogManager::getChannel(LogType type)
+void _log::file_listener::log(const _log::channel& ch, _log::level sev, const std::string& text)
 {
-	return mChannels[static_cast<u32>(type)];
-}
+	std::string msg; msg.reserve(text.size() + 200);
 
-void log_message(Log::LogType type, Log::Severity sev, const char* text)
-{
-	log_message(type, sev, std::string(text));
-}
+	// Used character: U+00B7 (Middle Dot)
+	switch (sev)
+	{
+	case level::always:  msg = u8"·A "; break;
+	case level::fatal:   msg = u8"·F "; break;
+	case level::error:   msg = u8"·E "; break;
+	case level::todo:    msg = u8"·U "; break;
+	case level::success: msg = u8"·S "; break;
+	case level::warning: msg = u8"·W "; break;
+	case level::notice:  msg = u8"·! "; break;
+	case level::trace:   msg = u8"·T "; break;
+	}
 
-void log_message(Log::LogType type, Log::Severity sev, std::string text)
-{
-	if (g_log_manager)
+	// TODO: print time?
+
+	if (auto t = thread_ctrl::get_current())
 	{
-		// another msvc bug makes this not work, uncomment this when it's fixed
-		//g_log_manager->log({logType, severity, text});
-		Log::LogMessage msg{ type, sev, std::move(text) };
-		g_log_manager->log(msg);
+		msg += '{';
+		msg += t->get_name();
+		msg += "} ";
 	}
-	else
+
+	if (ch.name.size())
 	{
-		rMessageBox(text,
-			sev == Severity::Notice ? "Notice" :
-			sev == Severity::Warning ? "Warning" :
-			sev == Severity::Success ? "Success" :
-			sev == Severity::Error ? "Error" : "Unknown",
-			sev == Severity::Notice ? rICON_INFORMATION :
-			sev == Severity::Warning ? rICON_EXCLAMATION :
-			sev == Severity::Error ? rICON_ERROR : rICON_INFORMATION);
+		msg += ch.name;
+		msg += sev == level::todo ? " TODO: " : ": ";
 	}
+	else if (sev == level::todo)
+	{
+		msg += "TODO: ";
+	}
+	
+	msg += text;
+	msg += '\n';
+
+	file_writer::log(msg);
 }

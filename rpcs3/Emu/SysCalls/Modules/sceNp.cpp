@@ -1,21 +1,20 @@
 #include "stdafx.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
+#include "Emu/state.h"
 #include "Emu/SysCalls/Modules.h"
 #include "Emu/SysCalls/lv2/sys_process.h"
-#include "rpcs3/Ini.h"
 
 #include "Emu/FS/VFS.h"
-#include "Utilities/File.h"
 #include "Emu/FS/vfsDir.h"
 #include "Crypto/unedat.h"
 #include "sceNp.h"
 
-extern Module sceNp;
+extern Module<> sceNp;
 
 s32 sceNpInit(u32 poolsize, vm::ptr<void> poolptr)
 {
-	sceNp.Warning("sceNpInit(poolsize=0x%x, poolptr=*0x%x)", poolsize, poolptr);
+	sceNp.warning("sceNpInit(poolsize=0x%x, poolptr=*0x%x)", poolsize, poolptr);
 
 	if (poolsize == 0)
 	{
@@ -36,7 +35,7 @@ s32 sceNpInit(u32 poolsize, vm::ptr<void> poolptr)
 
 s32 sceNpTerm()
 {
-	sceNp.Warning("sceNpTerm()");
+	sceNp.warning("sceNpTerm()");
 
 	return CELL_OK;
 }
@@ -45,7 +44,7 @@ s32 npDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 {
 	if (!Emu.GetVFS().ExistsFile(drm_path.get_ptr()))
 	{
-		sceNp.Warning("npDrmIsAvailable(): '%s' not found", drm_path.get_ptr());
+		sceNp.warning("npDrmIsAvailable(): '%s' not found", drm_path.get_ptr());
 		return CELL_ENOENT;
 	}
 
@@ -61,8 +60,8 @@ s32 npDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 		}
 	}
 
-	sceNp.Warning("npDrmIsAvailable(): Found DRM license file at %s", drm_path.get_ptr());
-	sceNp.Warning("npDrmIsAvailable(): Using k_licensee 0x%s", k_licensee_str.c_str());
+	sceNp.warning("npDrmIsAvailable(): Found DRM license file at %s", drm_path.get_ptr());
+	sceNp.warning("npDrmIsAvailable(): Using k_licensee 0x%s", k_licensee_str.c_str());
 
 	// Set the necessary file paths.
 	std::string drm_file_name = fmt::AfterLast(drm_path.get_ptr(), '/');
@@ -76,7 +75,7 @@ s32 npDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 	std::string pf_str("00000001");  // TODO: Allow multiple profiles. Use default for now.
 	std::string rap_path("/dev_hdd0/home/" + pf_str + "/exdata/");
 
-	// Search dev_usb000 for a compatible RAP file. 
+	// Search for a compatible RAP file. 
 	for (const auto entry : vfsDir(rap_path))
 	{
 		if (entry->name.find(titleID) != std::string::npos)
@@ -88,14 +87,20 @@ s32 npDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 
 	if (rap_path.back() == '/')
 	{
-		sceNp.Warning("npDrmIsAvailable(): Can't find RAP file for '%s' (titleID='%s')", drm_path.get_ptr(), titleID);
+		sceNp.warning("npDrmIsAvailable(): Can't find RAP file for '%s' (titleID='%s')", drm_path.get_ptr(), titleID);
+		rap_path.clear();
 	}
 
 	// Decrypt this EDAT using the supplied k_licensee and matching RAP file.
 	std::string enc_drm_path_local, dec_drm_path_local, rap_path_local;
+
 	Emu.GetVFS().GetDevice(enc_drm_path, enc_drm_path_local);
 	Emu.GetVFS().GetDevice(dec_drm_path, dec_drm_path_local);
-	Emu.GetVFS().GetDevice(rap_path, rap_path_local);
+
+	if (rap_path.size())
+	{
+		Emu.GetVFS().GetDevice(rap_path, rap_path_local);
+	}
 
 	if (DecryptEDAT(enc_drm_path_local, dec_drm_path_local, 8, rap_path_local, k_licensee, false) >= 0)
 	{
@@ -109,28 +114,28 @@ s32 npDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 
 s32 sceNpDrmIsAvailable(u32 k_licensee_addr, vm::cptr<char> drm_path)
 {
-	sceNp.Warning("sceNpDrmIsAvailable(k_licensee=*0x%x, drm_path=*0x%x)", k_licensee_addr, drm_path);
+	sceNp.warning("sceNpDrmIsAvailable(k_licensee=*0x%x, drm_path=*0x%x)", k_licensee_addr, drm_path);
 
 	return npDrmIsAvailable(k_licensee_addr, drm_path);
 }
 
 s32 sceNpDrmIsAvailable2(u32 k_licensee_addr, vm::cptr<char> drm_path)
 {
-	sceNp.Warning("sceNpDrmIsAvailable2(k_licensee=*0x%x, drm_path=*0x%x)", k_licensee_addr, drm_path);
+	sceNp.warning("sceNpDrmIsAvailable2(k_licensee=*0x%x, drm_path=*0x%x)", k_licensee_addr, drm_path);
 
 	return npDrmIsAvailable(k_licensee_addr, drm_path);
 }
 
 s32 sceNpDrmVerifyUpgradeLicense(vm::cptr<char> content_id)
 {
-	sceNp.Todo("sceNpDrmVerifyUpgradeLicense(content_id=*0x%x)", content_id);
+	sceNp.todo("sceNpDrmVerifyUpgradeLicense(content_id=*0x%x)", content_id);
 
 	return CELL_OK;
 }
 
 s32 sceNpDrmVerifyUpgradeLicense2(vm::cptr<char> content_id)
 {
-	sceNp.Todo("sceNpDrmVerifyUpgradeLicense2(content_id=*0x%x)", content_id);
+	sceNp.todo("sceNpDrmVerifyUpgradeLicense2(content_id=*0x%x)", content_id);
 
 	return CELL_OK;
 }
@@ -143,7 +148,7 @@ s32 sceNpDrmExecuteGamePurchase()
 
 s32 sceNpDrmGetTimelimit(vm::ptr<const char> path, vm::ptr<u64> time_remain)
 {
-	sceNp.Warning("sceNpDrmGetTimelimit(path=*0x%x, time_remain=*0x%x)", path, time_remain);
+	sceNp.warning("sceNpDrmGetTimelimit(path=*0x%x, time_remain=*0x%x)", path, time_remain);
 
 	*time_remain = 0x7FFFFFFFFFFFFFFFULL;
 
@@ -152,7 +157,7 @@ s32 sceNpDrmGetTimelimit(vm::ptr<const char> path, vm::ptr<u64> time_remain)
 
 s32 sceNpDrmProcessExitSpawn(vm::cptr<char> path, u32 argv_addr, u32 envp_addr, u32 data_addr, u32 data_size, u32 prio, u64 flags)
 {
-	sceNp.Warning("sceNpDrmProcessExitSpawn() -> sys_game_process_exitspawn");
+	sceNp.warning("sceNpDrmProcessExitSpawn() -> sys_game_process_exitspawn");
 
 	sys_game_process_exitspawn(path, argv_addr, envp_addr, data_addr, data_size, prio, flags);
 
@@ -161,7 +166,7 @@ s32 sceNpDrmProcessExitSpawn(vm::cptr<char> path, u32 argv_addr, u32 envp_addr, 
 
 s32 sceNpDrmProcessExitSpawn2(vm::cptr<char> path, u32 argv_addr, u32 envp_addr, u32 data_addr, u32 data_size, u32 prio, u64 flags)
 {
-	sceNp.Warning("sceNpDrmProcessExitSpawn2() -> sys_game_process_exitspawn2");
+	sceNp.warning("sceNpDrmProcessExitSpawn2() -> sys_game_process_exitspawn2");
 
 	sys_game_process_exitspawn2(path, argv_addr, envp_addr, data_addr, data_size, prio, flags);
 
@@ -260,7 +265,7 @@ s32 sceNpBasicAddFriend()
 
 s32 sceNpBasicGetFriendListEntryCount(vm::ptr<u32> count)
 {
-	sceNp.Warning("sceNpBasicGetFriendListEntryCount(count=*0x%x)", count);
+	sceNp.warning("sceNpBasicGetFriendListEntryCount(count=*0x%x)", count);
 
 	// TODO: Check if there are any friends
 	*count = 0;
@@ -312,7 +317,7 @@ s32 sceNpBasicAddPlayersHistoryAsync()
 
 s32 sceNpBasicGetPlayersHistoryEntryCount(u32 options, vm::ptr<u32> count)
 {
-	sceNp.Todo("sceNpBasicGetPlayersHistoryEntryCount(options=%d, count=*0x%x)", options, count);
+	sceNp.todo("sceNpBasicGetPlayersHistoryEntryCount(options=%d, count=*0x%x)", options, count);
 
 	return CELL_OK;
 }
@@ -331,7 +336,7 @@ s32 sceNpBasicAddBlockListEntry()
 
 s32 sceNpBasicGetBlockListEntryCount(u32 count)
 {
-	sceNp.Todo("sceNpBasicGetBlockListEntryCount(count=%d)", count);
+	sceNp.todo("sceNpBasicGetBlockListEntryCount(count=%d)", count);
 
 	return CELL_OK;
 }
@@ -344,14 +349,14 @@ s32 sceNpBasicGetBlockListEntry()
 
 s32 sceNpBasicGetMessageAttachmentEntryCount(vm::ptr<u32> count)
 {
-	sceNp.Todo("sceNpBasicGetMessageAttachmentEntryCount(count=*0x%x)", count);
+	sceNp.todo("sceNpBasicGetMessageAttachmentEntryCount(count=*0x%x)", count);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetMessageAttachmentEntry(u32 index, vm::ptr<SceNpUserInfo> from)
 {
-	sceNp.Todo("sceNpBasicGetMessageAttachmentEntry(index=%d, from=*0x%x)", index, from);
+	sceNp.todo("sceNpBasicGetMessageAttachmentEntry(index=%d, from=*0x%x)", index, from);
 
 	return CELL_OK;
 }
@@ -370,35 +375,35 @@ s32 sceNpBasicGetCustomInvitationEntry()
 
 s32 sceNpBasicGetMatchingInvitationEntryCount(vm::ptr<u32> count)
 {
-	sceNp.Todo("sceNpBasicGetMatchingInvitationEntryCount(count=*0x%x)", count);
+	sceNp.todo("sceNpBasicGetMatchingInvitationEntryCount(count=*0x%x)", count);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetMatchingInvitationEntry(u32 index, vm::ptr<SceNpUserInfo> from)
 {
-	sceNp.Todo("sceNpBasicGetMatchingInvitationEntry(index=%d, from=*0x%x)", index, from);
+	sceNp.todo("sceNpBasicGetMatchingInvitationEntry(index=%d, from=*0x%x)", index, from);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetClanMessageEntryCount(vm::ptr<u32> count)
 {
-	sceNp.Todo("sceNpBasicGetClanMessageEntryCount(count=*0x%x)", count);
+	sceNp.todo("sceNpBasicGetClanMessageEntryCount(count=*0x%x)", count);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetClanMessageEntry(u32 index, vm::ptr<SceNpUserInfo> from)
 {
-	sceNp.Todo("sceNpBasicGetClanMessageEntry(index=%d, from=*0x%x)", index, from);
+	sceNp.todo("sceNpBasicGetClanMessageEntry(index=%d, from=*0x%x)", index, from);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetMessageEntryCount(u32 type, vm::ptr<u32> count)
 {
-	sceNp.Warning("sceNpBasicGetMessageEntryCount(type=%d, count=*0x%x)", type, count);
+	sceNp.warning("sceNpBasicGetMessageEntryCount(type=%d, count=*0x%x)", type, count);
 
 	// TODO: Check if there are messages
 	*count = 0;
@@ -408,14 +413,14 @@ s32 sceNpBasicGetMessageEntryCount(u32 type, vm::ptr<u32> count)
 
 s32 sceNpBasicGetMessageEntry(u32 type, u32 index, vm::ptr<SceNpUserInfo> from)
 {
-	sceNp.Todo("sceNpBasicGetMessageEntry(type=%d, index=%d, from=*0x%x)", type, index, from);
+	sceNp.todo("sceNpBasicGetMessageEntry(type=%d, index=%d, from=*0x%x)", type, index, from);
 
 	return CELL_OK;
 }
 
 s32 sceNpBasicGetEvent(vm::ptr<s32> event, vm::ptr<SceNpUserInfo> from, vm::ptr<s32> data, vm::ptr<u32> size)
 {
-	sceNp.Warning("sceNpBasicGetEvent(event=*0x%x, from=*0x%x, data=*0x%x, size=*0x%x)", event, from, data, size);
+	sceNp.warning("sceNpBasicGetEvent(event=*0x%x, from=*0x%x, data=*0x%x, size=*0x%x)", event, from, data, size);
 
 	// TODO: Check for other error and pass other events
 	*event = SCE_NP_BASIC_EVENT_OFFLINE;
@@ -677,14 +682,14 @@ s32 sceNpFriendlistAbortGui()
 
 s32 sceNpLookupInit()
 {
-	sceNp.Warning("sceNpLookupInit()");
+	sceNp.warning("sceNpLookupInit()");
 
 	return CELL_OK;
 }
 
 s32 sceNpLookupTerm()
 {
-	sceNp.Warning("sceNpLookupTerm()");
+	sceNp.warning("sceNpLookupTerm()");
 
 	return CELL_OK;
 }
@@ -824,7 +829,7 @@ s32 sceNpManagerUnregisterCallback()
 
 s32 sceNpManagerGetStatus(vm::ptr<u32> status)
 {
-	sceNp.Warning("sceNpManagerGetStatus(status=*0x%x)", status);
+	sceNp.warning("sceNpManagerGetStatus(status=*0x%x)", status);
 
 	// TODO: Support different statuses
 	*status = SCE_NP_MANAGER_STATUS_OFFLINE;
@@ -882,7 +887,7 @@ s32 sceNpManagerGetAccountAge()
 
 s32 sceNpManagerGetContentRatingFlag(vm::ptr<u32> isRestricted, vm::ptr<u32> age)
 {
-	sceNp.Warning("sceNpManagerGetContentRatingFlag(isRestricted=*0x%x, age=*0x%x)", isRestricted, age);
+	sceNp.warning("sceNpManagerGetContentRatingFlag(isRestricted=*0x%x, age=*0x%x)", isRestricted, age);
 
 	// TODO: read user's parental control information
 	*isRestricted = 0;
@@ -1109,14 +1114,14 @@ s32 sceNpProfileAbortGui()
 
 s32 sceNpScoreInit()
 {
-	sceNp.Warning("sceNpScoreInit()");
+	sceNp.warning("sceNpScoreInit()");
 
 	return CELL_OK;
 }
 
 s32 sceNpScoreTerm()
 {
-	sceNp.Warning("sceNpScoreTerm()");
+	sceNp.warning("sceNpScoreTerm()");
 
 	return CELL_OK;
 }
@@ -1521,7 +1526,7 @@ s32 _Z32_sce_np_sysutil_cxml_prepare_docPN16sysutil_cxmlutil11FixedMemoryERN4cxm
 }
 
 
-Module sceNp("sceNp", []()
+Module<> sceNp("sceNp", []()
 {
 	REG_FUNC(sceNp, sceNpInit);
 	REG_FUNC(sceNp, sceNpTerm);

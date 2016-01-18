@@ -1,15 +1,14 @@
 #include "stdafx.h"
-#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "Emu/System.h"
+#include "Emu/state.h"
 #include "Emu/SysCalls/Modules.h"
 #include "Emu/SysCalls/Callback.h"
 
-#include "Ini.h"
 #include "Emu/FS/VFS.h"
 #include "cellSysutil.h"
 
-extern Module cellSysutil;
+extern Module<> cellSysutil;
 
 std::unique_ptr<sysutil_t> g_sysutil;
 
@@ -40,12 +39,12 @@ const char* get_systemparam_id_name(s32 id)
 
 s32 cellSysutilGetSystemParamInt(s32 id, vm::ptr<s32> value)
 {
-	cellSysutil.Warning("cellSysutilGetSystemParamInt(id=0x%x(%s), value=*0x%x)", id, get_systemparam_id_name(id), value);
+	cellSysutil.warning("cellSysutilGetSystemParamInt(id=0x%x(%s), value=*0x%x)", id, get_systemparam_id_name(id), value);
 
 	switch(id)
 	{
 	case CELL_SYSUTIL_SYSTEMPARAM_ID_LANG:
-		*value = Ini.SysLanguage.GetValue();
+		*value = rpcs3::config.system.language.value();
 	break;
 
 	case CELL_SYSUTIL_SYSTEMPARAM_ID_ENTER_BUTTON_ASSIGN:
@@ -113,7 +112,7 @@ s32 cellSysutilGetSystemParamInt(s32 id, vm::ptr<s32> value)
 
 s32 cellSysutilGetSystemParamString(s32 id, vm::ptr<char> buf, u32 bufsize)
 {
-	cellSysutil.Log("cellSysutilGetSystemParamString(id=0x%x(%s), buf=*0x%x, bufsize=%d)", id, get_systemparam_id_name(id), buf, bufsize);
+	cellSysutil.trace("cellSysutilGetSystemParamString(id=0x%x(%s), buf=*0x%x, bufsize=%d)", id, get_systemparam_id_name(id), buf, bufsize);
 
 	memset(buf.get_ptr(), 0, bufsize);
 
@@ -148,9 +147,9 @@ void sysutilSendSystemCommand(u64 status, u64 param)
 	{
 		if (cb.func)
 		{
-			Emu.GetCallbackManager().Register([=](CPUThread& CPU) -> s32
+			Emu.GetCallbackManager().Register([=](PPUThread& ppu) -> s32
 			{
-				cb.func(static_cast<PPUThread&>(CPU), status, param, cb.arg);
+				cb.func(ppu, status, param, cb.arg);
 				return CELL_OK;
 			});
 		}
@@ -159,7 +158,7 @@ void sysutilSendSystemCommand(u64 status, u64 param)
 
 s32 cellSysutilCheckCallback(PPUThread& CPU)
 {
-	cellSysutil.Log("cellSysutilCheckCallback()");
+	cellSysutil.trace("cellSysutilCheckCallback()");
 
 	while (auto func = Emu.GetCallbackManager().Check())
 	{
@@ -176,7 +175,7 @@ s32 cellSysutilCheckCallback(PPUThread& CPU)
 
 s32 cellSysutilRegisterCallback(s32 slot, vm::ptr<CellSysutilCallback> func, vm::ptr<void> userdata)
 {
-	cellSysutil.Warning("cellSysutilRegisterCallback(slot=%d, func=*0x%x, userdata=*0x%x)", slot, func, userdata);
+	cellSysutil.warning("cellSysutilRegisterCallback(slot=%d, func=*0x%x, userdata=*0x%x)", slot, func, userdata);
 
 	if ((u32)slot > 3)
 	{
@@ -190,7 +189,7 @@ s32 cellSysutilRegisterCallback(s32 slot, vm::ptr<CellSysutilCallback> func, vm:
 
 s32 cellSysutilUnregisterCallback(s32 slot)
 {
-	cellSysutil.Warning("cellSysutilUnregisterCallback(slot=%d)", slot);
+	cellSysutil.warning("cellSysutilUnregisterCallback(slot=%d)", slot);
 
 	if ((u32)slot > 3)
 	{
@@ -204,7 +203,7 @@ s32 cellSysutilUnregisterCallback(s32 slot)
 
 s32 cellSysCacheClear(void)
 {
-	cellSysutil.Todo("cellSysCacheClear()");
+	cellSysutil.todo("cellSysCacheClear()");
 
 	if (!g_sysutil->cacheMounted)
 	{
@@ -221,11 +220,11 @@ s32 cellSysCacheClear(void)
 
 s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 {
-	cellSysutil.Warning("cellSysCacheMount(param=*0x%x)", param);
+	cellSysutil.warning("cellSysCacheMount(param=*0x%x)", param);
 
 	// TODO: implement
-	char id[CELL_SYSCACHE_ID_SIZE];
-	strncpy(id, param->cacheId, CELL_SYSCACHE_ID_SIZE);
+	char id[CELL_SYSCACHE_ID_SIZE] = { '\0' };
+	strncpy(id, param->cacheId, CELL_SYSCACHE_ID_SIZE - 1);
 	strncpy(param->getCachePath, ("/dev_hdd1/cache/"s + id + "/").c_str(), CELL_SYSCACHE_PATH_MAX);
 	param->getCachePath[CELL_SYSCACHE_PATH_MAX - 1] = '\0';
 	Emu.GetVFS().CreateDir(param->getCachePath);
@@ -238,7 +237,7 @@ bool g_bgm_playback_enabled = true;
 
 s32 cellSysutilEnableBgmPlayback()
 {
-	cellSysutil.Warning("cellSysutilEnableBgmPlayback()");
+	cellSysutil.warning("cellSysutilEnableBgmPlayback()");
 
 	// TODO
 	g_bgm_playback_enabled = true;
@@ -248,7 +247,7 @@ s32 cellSysutilEnableBgmPlayback()
 
 s32 cellSysutilEnableBgmPlaybackEx(vm::ptr<CellSysutilBgmPlaybackExtraParam> param)
 {
-	cellSysutil.Warning("cellSysutilEnableBgmPlaybackEx(param=*0x%x)", param);
+	cellSysutil.warning("cellSysutilEnableBgmPlaybackEx(param=*0x%x)", param);
 
 	// TODO
 	g_bgm_playback_enabled = true; 
@@ -258,7 +257,7 @@ s32 cellSysutilEnableBgmPlaybackEx(vm::ptr<CellSysutilBgmPlaybackExtraParam> par
 
 s32 cellSysutilDisableBgmPlayback()
 {
-	cellSysutil.Warning("cellSysutilDisableBgmPlayback()");
+	cellSysutil.warning("cellSysutilDisableBgmPlayback()");
 
 	// TODO
 	g_bgm_playback_enabled = false;
@@ -268,7 +267,7 @@ s32 cellSysutilDisableBgmPlayback()
 
 s32 cellSysutilDisableBgmPlaybackEx(vm::ptr<CellSysutilBgmPlaybackExtraParam> param)
 {
-	cellSysutil.Warning("cellSysutilDisableBgmPlaybackEx(param=*0x%x)", param);
+	cellSysutil.warning("cellSysutilDisableBgmPlaybackEx(param=*0x%x)", param);
 
 	// TODO
 	g_bgm_playback_enabled = false;
@@ -278,7 +277,7 @@ s32 cellSysutilDisableBgmPlaybackEx(vm::ptr<CellSysutilBgmPlaybackExtraParam> pa
 
 s32 cellSysutilGetBgmPlaybackStatus(vm::ptr<CellSysutilBgmPlaybackStatus> status)
 {
-	cellSysutil.Warning("cellSysutilGetBgmPlaybackStatus(status=*0x%x)", status);
+	cellSysutil.warning("cellSysutilGetBgmPlaybackStatus(status=*0x%x)", status);
 
 	// TODO
 	status->playerState = CELL_SYSUTIL_BGMPLAYBACK_STATUS_STOP;
@@ -292,7 +291,7 @@ s32 cellSysutilGetBgmPlaybackStatus(vm::ptr<CellSysutilBgmPlaybackStatus> status
 
 s32 cellSysutilGetBgmPlaybackStatus2(vm::ptr<CellSysutilBgmPlaybackStatus2> status2)
 {
-	cellSysutil.Warning("cellSysutilGetBgmPlaybackStatus2(status2=*0x%x)", status2);
+	cellSysutil.warning("cellSysutilGetBgmPlaybackStatus2(status2=*0x%x)", status2);
 
 	// TODO
 	status2->playerState = CELL_SYSUTIL_BGMPLAYBACK_STATUS_STOP;
@@ -352,7 +351,7 @@ extern void cellSysutil_WebBrowser_init();
 extern void cellSysutil_AudioOut_init();
 extern void cellSysutil_VideoOut_init();
 
-Module cellSysutil("cellSysutil", []()
+Module<> cellSysutil("cellSysutil", []()
 {
 	g_sysutil = std::make_unique<sysutil_t>();
 

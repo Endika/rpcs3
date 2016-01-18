@@ -4,7 +4,7 @@
 
 namespace vm { using namespace ps3; }
 
-extern Module cellOvis;
+extern Module<> cellOvis;
 
 // Return Codes
 enum
@@ -16,7 +16,7 @@ enum
 
 s32 cellOvisGetOverlayTableSize(vm::cptr<char> elf)
 {
-	cellOvis.Todo("cellOvisGetOverlayTableSize(elf=*0x%x)", elf);
+	cellOvis.todo("cellOvisGetOverlayTableSize(elf=*0x%x)", elf);
 	return CELL_OK;
 }
 
@@ -38,7 +38,7 @@ s32 cellOvisInvalidateOverlappedSegments()
 	return CELL_OK;
 }
 
-Module cellOvis("cellOvis", []()
+Module<> cellOvis("cellOvis", []()
 {
 	REG_FUNC(cellOvis, cellOvisGetOverlayTableSize);
 	REG_FUNC(cellOvis, cellOvisInitializeOverlayTable);

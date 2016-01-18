@@ -1,22 +1,96 @@
+#include "stdafx.h"
 #include "stdafx_gui.h"
 
-#include "Ini.h"
 #include "Emu/System.h"
+#include "Emu/state.h"
 #include "Emu/SysCalls/Modules/cellVideoOut.h"
 #include "SettingsDialog.h"
-#include "Utilities/Log.h"
-#include <wx/radiobox.h>
 
-SettingsDialog::SettingsDialog(wxWindow *parent)
+#ifdef _WIN32
+#include <windows.h>
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
+
+#undef GetHwnd
+#ifdef _MSC_VER
+#include <d3d12.h>
+#include <wrl/client.h>
+#include <dxgi1_4.h>
+#endif
+#else
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <ifaddrs.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#endif
+
+std::vector<std::string> GetAdapters()
+{
+	std::vector<std::string> adapters;
+#ifdef _WIN32
+	PIP_ADAPTER_INFO pAdapterInfo;
+	pAdapterInfo = (IP_ADAPTER_INFO*)malloc(sizeof(IP_ADAPTER_INFO));
+	ULONG buflen = sizeof(IP_ADAPTER_INFO);
+
+	if (GetAdaptersInfo(pAdapterInfo, &buflen) == ERROR_BUFFER_OVERFLOW)
+	{
+		free(pAdapterInfo);
+		pAdapterInfo = (IP_ADAPTER_INFO*)malloc(buflen);
+	}
+
+	if (GetAdaptersInfo(pAdapterInfo, &buflen) == NO_ERROR)
+	{
+		PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
+		while (pAdapter)
+		{
+			adapters.emplace_back(pAdapter->Description);
+			pAdapter = pAdapter->Next;
+		}
+	}
+	else
+	{
+		LOG_ERROR(HLE, "Call to GetAdaptersInfo failed.");
+	}
+#else
+	struct ifaddrs *ifaddr, *ifa;
+	int family, s, n;
+	char host[NI_MAXHOST];
+
+	if (getifaddrs(&ifaddr) == -1)
+	{
+		LOG_ERROR(HLE, "Call to getifaddrs returned negative.");
+	}
+
+	for (ifa = ifaddr, n = 0; ifa != NULL; ifa = ifa->ifa_next, n++)
+	{
+		if (ifa->ifa_addr == NULL)
+		{
+			continue;
+		}
+
+		family = ifa->ifa_addr->sa_family;
+
+		if (family == AF_INET || family == AF_INET6)
+		{
+			adapters.emplace_back(ifa->ifa_name);
+		}
+	}
+
+	freeifaddrs(ifaddr);
+#endif
+
+	return adapters;
+}
+
+
+SettingsDialog::SettingsDialog(wxWindow *parent, rpcs3::config_t* cfg)
 	: wxDialog(parent, wxID_ANY, "Settings", wxDefaultPosition)
 {
-	bool paused = false;
-
-	if (Emu.IsRunning())
-	{
-		Emu.Pause();
-		paused = true;
-	}
+	const bool was_running = Emu.Pause();
+	if (was_running || Emu.IsReady()) cfg = &rpcs3::state.config;
 
 	static const u32 width = 458;
 	static const u32 height = 400;
@@ -111,18 +185,18 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 	wxCheckBox* chbox_gs_log_prog = new wxCheckBox(p_graphics, wxID_ANY, "Log shader programs");
 	wxCheckBox* chbox_gs_dump_depth = new wxCheckBox(p_graphics, wxID_ANY, "Write Depth Buffer");
 	wxCheckBox* chbox_gs_dump_color = new wxCheckBox(p_graphics, wxID_ANY, "Write Color Buffers");
-	wxCheckBox* chbox_gs_read_color = new wxCheckBox(p_graphics, wxID_ANY, "Read Color Buffer");
+	wxCheckBox* chbox_gs_read_color = new wxCheckBox(p_graphics, wxID_ANY, "Read Color Buffers");
+	wxCheckBox* chbox_gs_read_depth = new wxCheckBox(p_graphics, wxID_ANY, "Read Depth Buffer");
 	wxCheckBox* chbox_gs_vsync = new wxCheckBox(p_graphics, wxID_ANY, "VSync");
 	wxCheckBox* chbox_gs_debug_output = new wxCheckBox(p_graphics, wxID_ANY, "Debug Output");
 	wxCheckBox* chbox_gs_3dmonitor = new wxCheckBox(p_graphics, wxID_ANY, "3D Monitor");
 	wxCheckBox* chbox_gs_overlay = new wxCheckBox(p_graphics, wxID_ANY, "Debug overlay");
 	wxCheckBox* chbox_audio_dump = new wxCheckBox(p_audio, wxID_ANY, "Dump to file");
 	wxCheckBox* chbox_audio_conv = new wxCheckBox(p_audio, wxID_ANY, "Convert to 16 bit");
-	wxCheckBox* chbox_hle_logging = new wxCheckBox(p_misc, wxID_ANY, "Log everything");
 	wxCheckBox* chbox_rsx_logging = new wxCheckBox(p_misc, wxID_ANY, "RSX Logging");
-	wxCheckBox* chbox_hle_savetty = new wxCheckBox(p_misc, wxID_ANY, "Save TTY output to file");
 	wxCheckBox* chbox_hle_exitonstop = new wxCheckBox(p_misc, wxID_ANY, "Exit RPCS3 when process finishes");
 	wxCheckBox* chbox_hle_always_start = new wxCheckBox(p_misc, wxID_ANY, "Always start after boot");
+	wxCheckBox* chbox_hle_use_default_ini = new wxCheckBox(p_misc, wxID_ANY, "Use default configuration");
 
 	wxTextCtrl* txt_dbg_range_min = new wxTextCtrl(p_core, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(55, 20));
 	wxTextCtrl* txt_dbg_range_max = new wxTextCtrl(p_core, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(55, 20));
@@ -133,8 +207,8 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 	wxCheckBox* chbox_dbg_ap_functioncall = new wxCheckBox(p_misc, wxID_ANY, "Auto Pause at Function Call");
 
 	//Custom EmulationDir
-	wxCheckBox* chbox_emulationdir_enable = new wxCheckBox(p_system, wxID_ANY, "Use Path Below as EmulationDir ? (Need Restart)");
-	wxTextCtrl* txt_emulationdir_path = new wxTextCtrl(p_system, wxID_ANY, Emu.GetEmulatorPath());
+	wxCheckBox* chbox_emulationdir_enable = new wxCheckBox(p_system, wxID_ANY, "Use path below as EmulationDir. (Restart required)");
+	wxTextCtrl* txt_emulationdir_path = new wxTextCtrl(p_system, wxID_ANY, fs::get_executable_dir());
 
 
 	wxArrayString ppu_decoder_modes;
@@ -155,19 +229,27 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	cbox_gs_render->Append("Null");
 	cbox_gs_render->Append("OpenGL");
-#if defined(DX12_SUPPORT)
-	cbox_gs_render->Append("DirectX 12");
-#endif
 
-	cbox_gs_d3d_adaptater->Append("WARP");
-	cbox_gs_d3d_adaptater->Append("default");
-	cbox_gs_d3d_adaptater->Append("renderer 0");
-	cbox_gs_d3d_adaptater->Append("renderer 1");
-	cbox_gs_d3d_adaptater->Append("renderer 2");
+#ifdef _MSC_VER
+	Microsoft::WRL::ComPtr<IDXGIFactory4> dxgiFactory;
+	Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
 
-#if !defined(DX12_SUPPORT)
-	cbox_gs_d3d_adaptater->Enable(false);
-	chbox_gs_overlay->Enable(false);
+	if (SUCCEEDED(CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory))))
+	{
+		cbox_gs_render->Append("DirectX 12");
+
+		for (uint id = 0; dxgiFactory->EnumAdapters(id, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; id++)
+		{
+			DXGI_ADAPTER_DESC adapterDesc;
+			adapter->GetDesc(&adapterDesc);
+			cbox_gs_d3d_adaptater->Append(adapterDesc.Description);
+		}
+	}
+	else
+	{
+		cbox_gs_d3d_adaptater->Enable(false);
+		chbox_gs_overlay->Enable(false);
+	}
 #endif
 
 	for (int i = 1; i < WXSIZEOF(ResolutionTable); ++i)
@@ -183,9 +265,10 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	cbox_pad_handler->Append("Null");
 	cbox_pad_handler->Append("Windows");
-#if defined (_WIN32)
+#ifdef _MSC_VER
 	cbox_pad_handler->Append("XInput");
 #endif
+
 	//cbox_pad_handler->Append("DirectInput");
 
 	cbox_keyboard_handler->Append("Null");
@@ -198,7 +281,7 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	cbox_audio_out->Append("Null");
 	cbox_audio_out->Append("OpenAL");
-#if defined (_WIN32)
+#ifdef _MSC_VER
 	cbox_audio_out->Append("XAudio2");
 #endif
 
@@ -210,11 +293,14 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 	cbox_camera_type->Append("PlayStation Eye");
 	cbox_camera_type->Append("USB Video Class 1.1");
 
-	cbox_hle_loglvl->Append("All");
-	cbox_hle_loglvl->Append("Warnings");
-	cbox_hle_loglvl->Append("Success");
-	cbox_hle_loglvl->Append("Errors");
 	cbox_hle_loglvl->Append("Nothing");
+	cbox_hle_loglvl->Append("Fatal");
+	cbox_hle_loglvl->Append("Error");
+	cbox_hle_loglvl->Append("TODO");
+	cbox_hle_loglvl->Append("Success");
+	cbox_hle_loglvl->Append("Warning");
+	cbox_hle_loglvl->Append("Notice");
+	cbox_hle_loglvl->Append("All");
 
 	cbox_net_status->Append("IP Obtained");
 	cbox_net_status->Append("Obtaining IP");
@@ -235,54 +321,53 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 	for (const auto& lang : s_langs)
 		cbox_sys_lang->Append(lang);
 
-	// Get values from .ini
-	chbox_core_llvm_exclud->SetValue(Ini.LLVMExclusionRange.GetValue());
-	chbox_gs_log_prog->SetValue(Ini.GSLogPrograms.GetValue());
-	chbox_gs_dump_depth->SetValue(Ini.GSDumpDepthBuffer.GetValue());
-	chbox_gs_dump_color->SetValue(Ini.GSDumpColorBuffers.GetValue());
-	chbox_gs_read_color->SetValue(Ini.GSReadColorBuffer.GetValue());
-	chbox_gs_vsync->SetValue(Ini.GSVSyncEnable.GetValue());
-	chbox_gs_debug_output->SetValue(Ini.GSDebugOutputEnable.GetValue());
-	chbox_gs_3dmonitor->SetValue(Ini.GS3DTV.GetValue());
-	chbox_gs_overlay->SetValue(Ini.GSOverlay.GetValue());
-	chbox_audio_dump->SetValue(Ini.AudioDumpToFile.GetValue());
-	chbox_audio_conv->SetValue(Ini.AudioConvertToU16.GetValue());
-	chbox_hle_logging->SetValue(Ini.HLELogging.GetValue());
-	chbox_rsx_logging->SetValue(Ini.RSXLogging.GetValue());
-	chbox_hle_savetty->SetValue(Ini.HLESaveTTY.GetValue());
-	chbox_hle_exitonstop->SetValue(Ini.HLEExitOnStop.GetValue());
-	chbox_hle_always_start->SetValue(Ini.HLEAlwaysStart.GetValue());
-	chbox_core_hook_stfunc->SetValue(Ini.HookStFunc.GetValue());
-	chbox_core_load_liblv2->SetValue(Ini.LoadLibLv2.GetValue());
+	chbox_core_llvm_exclud->SetValue(cfg->core.llvm.exclusion_range.value());
+	chbox_gs_log_prog->SetValue(rpcs3::config.rsx.log_programs.value());
+	chbox_gs_dump_depth->SetValue(cfg->rsx.opengl.write_depth_buffer.value());
+	chbox_gs_dump_color->SetValue(cfg->rsx.opengl.write_color_buffers.value());
+	chbox_gs_read_color->SetValue(cfg->rsx.opengl.read_color_buffers.value());
+	chbox_gs_read_depth->SetValue(cfg->rsx.opengl.read_depth_buffer.value());
+	chbox_gs_vsync->SetValue(rpcs3::config.rsx.vsync.value());
+	chbox_gs_debug_output->SetValue(cfg->rsx.d3d12.debug_output.value());
+	chbox_gs_3dmonitor->SetValue(rpcs3::config.rsx._3dtv.value());
+	chbox_gs_overlay->SetValue(cfg->rsx.d3d12.overlay.value());
+	chbox_audio_dump->SetValue(rpcs3::config.audio.dump_to_file.value());
+	chbox_audio_conv->SetValue(rpcs3::config.audio.convert_to_u16.value());
+	chbox_rsx_logging->SetValue(rpcs3::config.misc.log.rsx_logging.value());
+	chbox_hle_exitonstop->SetValue(rpcs3::config.misc.exit_on_stop.value());
+	chbox_hle_always_start->SetValue(rpcs3::config.misc.always_start.value());
+	chbox_hle_use_default_ini->SetValue(rpcs3::config.misc.use_default_ini.value());
+	chbox_core_hook_stfunc->SetValue(cfg->core.hook_st_func.value());
+	chbox_core_load_liblv2->SetValue(cfg->core.load_liblv2.value());
 
 	//Auto Pause related
-	chbox_dbg_ap_systemcall->SetValue(Ini.DBGAutoPauseSystemCall.GetValue());
-	chbox_dbg_ap_functioncall->SetValue(Ini.DBGAutoPauseFunctionCall.GetValue());
+	chbox_dbg_ap_systemcall->SetValue(rpcs3::config.misc.debug.auto_pause_syscall.value());
+	chbox_dbg_ap_functioncall->SetValue(rpcs3::config.misc.debug.auto_pause_func_call.value());
 
 	//Custom EmulationDir
-	chbox_emulationdir_enable->SetValue(Ini.SysEmulationDirPathEnable.GetValue());
-	txt_emulationdir_path->SetValue(Ini.SysEmulationDirPath.GetValue());
+	chbox_emulationdir_enable->SetValue(rpcs3::config.system.emulation_dir_path_enable.value());
+	txt_emulationdir_path->SetValue(rpcs3::config.system.emulation_dir_path.value());
 
-	rbox_ppu_decoder->SetSelection(Ini.CPUDecoderMode.GetValue() ? Ini.CPUDecoderMode.GetValue() : 0);
-	txt_dbg_range_min->SetValue(std::to_string(Ini.LLVMMinId.GetValue()));
-	txt_dbg_range_max->SetValue(std::to_string(Ini.LLVMMaxId.GetValue()));
-	txt_llvm_threshold->SetValue(std::to_string(Ini.LLVMThreshold.GetValue()));
-	rbox_spu_decoder->SetSelection(Ini.SPUDecoderMode.GetValue() ? Ini.SPUDecoderMode.GetValue() : 0);
-	cbox_gs_render->SetSelection(Ini.GSRenderMode.GetValue());
-	cbox_gs_d3d_adaptater->SetSelection(Ini.GSD3DAdaptater.GetValue());
-	cbox_gs_resolution->SetSelection(ResolutionIdToNum(Ini.GSResolution.GetValue()) - 1);
-	cbox_gs_aspect->SetSelection(Ini.GSAspectRatio.GetValue() - 1);
-	cbox_gs_frame_limit->SetSelection(Ini.GSFrameLimit.GetValue());
-	cbox_pad_handler->SetSelection(Ini.PadHandlerMode.GetValue());
-	cbox_keyboard_handler->SetSelection(Ini.KeyboardHandlerMode.GetValue());
-	cbox_mouse_handler->SetSelection(Ini.MouseHandlerMode.GetValue());
-	cbox_audio_out->SetSelection(Ini.AudioOutMode.GetValue());
-	cbox_camera->SetSelection(Ini.Camera.GetValue());
-	cbox_camera_type->SetSelection(Ini.CameraType.GetValue());
-	cbox_hle_loglvl->SetSelection(Ini.HLELogLvl.GetValue());
-	cbox_net_status->SetSelection(Ini.NETStatus.GetValue());
-	cbox_net_interface->SetSelection(Ini.NETInterface.GetValue());
-	cbox_sys_lang->SetSelection(Ini.SysLanguage.GetValue());
+	rbox_ppu_decoder->SetSelection((int)cfg->core.ppu_decoder.value());
+	txt_dbg_range_min->SetValue(cfg->core.llvm.min_id.string_value());
+	txt_dbg_range_max->SetValue(cfg->core.llvm.max_id.string_value());
+	txt_llvm_threshold->SetValue(cfg->core.llvm.threshold.string_value());
+	rbox_spu_decoder->SetSelection((int)cfg->core.spu_decoder.value());
+	cbox_gs_render->SetSelection((int)cfg->rsx.renderer.value());
+	cbox_gs_d3d_adaptater->SetSelection(cfg->rsx.d3d12.adaptater.value());
+	cbox_gs_resolution->SetSelection(ResolutionIdToNum((int)cfg->rsx.resolution.value()) - 1);
+	cbox_gs_aspect->SetSelection((int)cfg->rsx.aspect_ratio.value() - 1);
+	cbox_gs_frame_limit->SetSelection((int)cfg->rsx.frame_limit.value());
+	cbox_pad_handler->SetSelection((int)cfg->io.pad_handler_mode.value());
+	cbox_keyboard_handler->SetSelection((int)cfg->io.keyboard_handler_mode.value());
+	cbox_mouse_handler->SetSelection((int)cfg->io.mouse_handler_mode.value());
+	cbox_audio_out->SetSelection((int)cfg->audio.out.value());
+	cbox_camera->SetSelection((int)cfg->io.camera.value());
+	cbox_camera_type->SetSelection((int)cfg->io.camera_type.value());
+	cbox_hle_loglvl->SetSelection((int)rpcs3::config.misc.log.level.value());
+	cbox_net_status->SetSelection((int)rpcs3::config.misc.net.status.value());
+	cbox_net_interface->SetSelection((int)rpcs3::config.misc.net._interface.value());
+	cbox_sys_lang->SetSelection((int)rpcs3::config.system.language.value());
 
 	// Core
 	s_round_llvm->Add(chbox_core_llvm_exclud, wxSizerFlags().Border(wxALL, 5).Expand());
@@ -308,6 +393,7 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	s_round_audio_out->Add(cbox_audio_out, wxSizerFlags().Border(wxALL, 5).Expand());
 
+	// Miscellaneous
 	s_round_hle_log_lvl->Add(cbox_hle_loglvl, wxSizerFlags().Border(wxALL, 5).Expand());
 
 	// Networking
@@ -329,9 +415,10 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 	s_subpanel_graphics1->Add(s_round_gs_render, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics1->Add(s_round_gs_res, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics1->Add(s_round_gs_d3d_adaptater, wxSizerFlags().Border(wxALL, 5).Expand());
-	s_subpanel_graphics1->Add(chbox_gs_dump_depth, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics1->Add(chbox_gs_dump_color, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics1->Add(chbox_gs_read_color, wxSizerFlags().Border(wxALL, 5).Expand());
+	s_subpanel_graphics1->Add(chbox_gs_dump_depth, wxSizerFlags().Border(wxALL, 5).Expand());
+	s_subpanel_graphics1->Add(chbox_gs_read_depth, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics1->Add(chbox_gs_vsync, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics2->Add(s_round_gs_aspect, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_graphics2->Add(s_round_gs_frame_limit, wxSizerFlags().Border(wxALL, 5).Expand());
@@ -359,11 +446,10 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	// Miscellaneous
 	s_subpanel_misc->Add(s_round_hle_log_lvl, wxSizerFlags().Border(wxALL, 5).Expand());
-	s_subpanel_misc->Add(chbox_hle_logging, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_misc->Add(chbox_rsx_logging, wxSizerFlags().Border(wxALL, 5).Expand());
-	s_subpanel_misc->Add(chbox_hle_savetty, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_misc->Add(chbox_hle_exitonstop, wxSizerFlags().Border(wxALL, 5).Expand());
 	s_subpanel_misc->Add(chbox_hle_always_start, wxSizerFlags().Border(wxALL, 5).Expand());
+	s_subpanel_misc->Add(chbox_hle_use_default_ini, wxSizerFlags().Border(wxALL, 5).Expand());
 
 	// Auto Pause
 	s_subpanel_misc->Add(chbox_dbg_ap_systemcall, wxSizerFlags().Border(wxALL, 5).Expand());
@@ -399,60 +485,65 @@ SettingsDialog::SettingsDialog(wxWindow *parent)
 
 	if (ShowModal() == wxID_OK)
 	{
-		Ini.CPUDecoderMode.SetValue(rbox_ppu_decoder->GetSelection());
+		long llvmthreshold;
 		long minllvmid, maxllvmid;
 		txt_dbg_range_min->GetValue().ToLong(&minllvmid);
 		txt_dbg_range_max->GetValue().ToLong(&maxllvmid);
-		Ini.LLVMExclusionRange.SetValue(chbox_core_llvm_exclud->GetValue());
-		Ini.LLVMMinId.SetValue((u32)minllvmid);
-		Ini.LLVMMaxId.SetValue((u32)maxllvmid);
-		long llvmthreshold;
 		txt_llvm_threshold->GetValue().ToLong(&llvmthreshold);
-		Ini.LLVMThreshold.SetValue((u32)llvmthreshold);
-		Ini.SPUDecoderMode.SetValue(rbox_spu_decoder->GetSelection());
-		Ini.HookStFunc.SetValue(chbox_core_hook_stfunc->GetValue());
-		Ini.LoadLibLv2.SetValue(chbox_core_load_liblv2->GetValue());
-		Ini.GSRenderMode.SetValue(cbox_gs_render->GetSelection());
-		Ini.GSD3DAdaptater.SetValue(cbox_gs_d3d_adaptater->GetSelection());
-		Ini.GSResolution.SetValue(ResolutionNumToId(cbox_gs_resolution->GetSelection() + 1));
-		Ini.GSAspectRatio.SetValue(cbox_gs_aspect->GetSelection() + 1);
-		Ini.GSFrameLimit.SetValue(cbox_gs_frame_limit->GetSelection());
-		Ini.GSLogPrograms.SetValue(chbox_gs_log_prog->GetValue());
-		Ini.GSDumpDepthBuffer.SetValue(chbox_gs_dump_depth->GetValue());
-		Ini.GSDumpColorBuffers.SetValue(chbox_gs_dump_color->GetValue());
-		Ini.GSReadColorBuffer.SetValue(chbox_gs_read_color->GetValue());
-		Ini.GSVSyncEnable.SetValue(chbox_gs_vsync->GetValue());
-		Ini.GSDebugOutputEnable.SetValue(chbox_gs_debug_output->GetValue());
-		Ini.GS3DTV.SetValue(chbox_gs_3dmonitor->GetValue());
-		Ini.GSOverlay.SetValue(chbox_gs_overlay->GetValue());
-		Ini.PadHandlerMode.SetValue(cbox_pad_handler->GetSelection());
-		Ini.KeyboardHandlerMode.SetValue(cbox_keyboard_handler->GetSelection());
-		Ini.MouseHandlerMode.SetValue(cbox_mouse_handler->GetSelection());
-		Ini.AudioOutMode.SetValue(cbox_audio_out->GetSelection());
-		Ini.AudioDumpToFile.SetValue(chbox_audio_dump->GetValue());
-		Ini.AudioConvertToU16.SetValue(chbox_audio_conv->GetValue());
-		Ini.Camera.SetValue(cbox_camera->GetSelection());
-		Ini.CameraType.SetValue(cbox_camera_type->GetSelection());
-		Ini.HLELogging.SetValue(chbox_hle_logging->GetValue());
-		Ini.RSXLogging.SetValue(chbox_rsx_logging->GetValue());
-		Ini.HLESaveTTY.SetValue(chbox_hle_savetty->GetValue());
-		Ini.HLEExitOnStop.SetValue(chbox_hle_exitonstop->GetValue());
-		Ini.HLELogLvl.SetValue(cbox_hle_loglvl->GetSelection());
-		Ini.NETStatus.SetValue(cbox_net_status->GetSelection());
-		Ini.NETInterface.SetValue(cbox_net_interface->GetSelection());
-		Ini.SysLanguage.SetValue(cbox_sys_lang->GetSelection());
-		Ini.HLEAlwaysStart.SetValue(chbox_hle_always_start->GetValue());
 
-		//Auto Pause
-		Ini.DBGAutoPauseFunctionCall.SetValue(chbox_dbg_ap_functioncall->GetValue());
-		Ini.DBGAutoPauseSystemCall.SetValue(chbox_dbg_ap_systemcall->GetValue());
+		// individual settings
+		cfg->core.ppu_decoder = rbox_ppu_decoder->GetSelection();
+		cfg->core.llvm.exclusion_range = chbox_core_llvm_exclud->GetValue();
+		cfg->core.llvm.min_id = minllvmid;
+		cfg->core.llvm.max_id = maxllvmid;
+		cfg->core.llvm.threshold = llvmthreshold;
+		cfg->core.spu_decoder = rbox_spu_decoder->GetSelection();
+		cfg->core.hook_st_func = chbox_core_hook_stfunc->GetValue();
+		cfg->core.load_liblv2 = chbox_core_load_liblv2->GetValue();
 
-		//Custom EmulationDir
-		Ini.SysEmulationDirPathEnable.SetValue(chbox_emulationdir_enable->GetValue());
-		Ini.SysEmulationDirPath.SetValue(txt_emulationdir_path->GetValue().ToStdString());
+		cfg->rsx.renderer = cbox_gs_render->GetSelection();
+		cfg->rsx.d3d12.adaptater = cbox_gs_d3d_adaptater->GetSelection();
+		cfg->rsx.resolution = ResolutionNumToId(cbox_gs_resolution->GetSelection() + 1);
+		cfg->rsx.aspect_ratio = cbox_gs_aspect->GetSelection() + 1;
+		cfg->rsx.frame_limit = cbox_gs_frame_limit->GetSelection();
+		cfg->rsx.opengl.write_depth_buffer = chbox_gs_dump_depth->GetValue();
+		cfg->rsx.opengl.write_color_buffers = chbox_gs_dump_color->GetValue();
+		cfg->rsx.opengl.read_color_buffers = chbox_gs_read_color->GetValue();
+		cfg->rsx.opengl.read_depth_buffer = chbox_gs_read_depth->GetValue();
 
-		Ini.Save();
+		cfg->audio.out = cbox_audio_out->GetSelection();
+
+		cfg->io.pad_handler_mode = cbox_pad_handler->GetSelection();
+		cfg->io.keyboard_handler_mode = cbox_keyboard_handler->GetSelection();
+		cfg->io.mouse_handler_mode = cbox_mouse_handler->GetSelection();
+		cfg->io.camera = cbox_camera->GetSelection();
+		cfg->io.camera_type = cbox_camera_type->GetSelection();
+
+		
+		// global settings
+		rpcs3::config.rsx.log_programs = chbox_gs_log_prog->GetValue();
+		rpcs3::config.rsx.vsync = chbox_gs_vsync->GetValue();
+		rpcs3::config.rsx._3dtv = chbox_gs_3dmonitor->GetValue();
+		rpcs3::config.rsx.d3d12.debug_output = chbox_gs_debug_output->GetValue();
+		rpcs3::config.rsx.d3d12.overlay = chbox_gs_overlay->GetValue();
+		rpcs3::config.audio.dump_to_file = chbox_audio_dump->GetValue();
+		rpcs3::config.audio.convert_to_u16 = chbox_audio_conv->GetValue();
+		rpcs3::config.misc.log.level = cbox_hle_loglvl->GetSelection();
+		rpcs3::config.misc.log.rsx_logging = chbox_rsx_logging->GetValue();
+		rpcs3::config.misc.net.status = cbox_net_status->GetSelection();
+		rpcs3::config.misc.net._interface = cbox_net_interface->GetSelection();
+		rpcs3::config.misc.debug.auto_pause_syscall = chbox_dbg_ap_systemcall->GetValue();
+		rpcs3::config.misc.debug.auto_pause_func_call = chbox_dbg_ap_functioncall->GetValue();
+		rpcs3::config.misc.always_start = chbox_hle_always_start->GetValue();
+		rpcs3::config.misc.exit_on_stop = chbox_hle_exitonstop->GetValue();
+		rpcs3::config.misc.use_default_ini = chbox_hle_use_default_ini->GetValue();
+		rpcs3::config.system.language = cbox_sys_lang->GetSelection();
+		rpcs3::config.system.emulation_dir_path_enable = chbox_emulationdir_enable->GetValue();
+		rpcs3::config.system.emulation_dir_path = txt_emulationdir_path->GetValue().ToStdString();
+		rpcs3::config.save();
+
+		cfg->save();
 	}
 
-	if (paused) Emu.Resume();
+	if (was_running) Emu.Resume();
 }

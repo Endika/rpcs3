@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "Utilities/Log.h"
 
 #include "Crypto/sha1.h"
 #include "SPURecompiler.h"
@@ -9,7 +8,7 @@ const spu_opcode_table_t<spu_itype_t> g_spu_itype{ DEFINE_SPU_OPCODES(spu_itype:
 
 std::shared_ptr<spu_function_t> SPUDatabase::find(const be_t<u32>* data, u64 key, u32 max_size)
 {
-	for (auto found = m_db.find(key); found != m_db.end(); found++)
+	for (auto found = m_db.find(key); found != m_db.end() && found->first == key; found++)
 	{
 		if (found->second->size > max_size)
 		{
@@ -40,8 +39,6 @@ SPUDatabase::~SPUDatabase()
 
 std::shared_ptr<spu_function_t> SPUDatabase::analyse(const be_t<u32>* ls, u32 entry, u32 max_limit)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-
 	// Check arguments (bounds and alignment)
 	if (max_limit > 0x40000 || entry >= max_limit || entry % 4 || max_limit % 4)
 	{
@@ -51,7 +48,19 @@ std::shared_ptr<spu_function_t> SPUDatabase::analyse(const be_t<u32>* ls, u32 en
 	// Key for multimap
 	const u64 key = entry | u64{ ls[entry / 4] } << 32;
 
-	// Try to find existing function in the database
+	{
+		reader_lock lock(m_mutex);
+
+		// Try to find existing function in the database
+		if (auto func = find(ls + entry / 4, key, max_limit - entry))
+		{
+			return func;
+		}
+	}
+
+	std::lock_guard<shared_mutex> lock(m_mutex);
+
+	// Double-check
 	if (auto func = find(ls + entry / 4, key, max_limit - entry))
 	{
 		return func;
@@ -239,7 +248,7 @@ std::shared_ptr<spu_function_t> SPUDatabase::analyse(const be_t<u32>* ls, u32 en
 		}
 		else // Other instructions (writing rt reg)
 		{
-			const u32 rt = type == SELB || type == SHUFB || type == MPYA || type == FNMS || type == FMA || type == FMS ? op.rc : op.rt;
+			const u32 rt = type == SELB || type == SHUFB || type == MPYA || type == FNMS || type == FMA || type == FMS ? +op.rc : +op.rt;
 
 			// Analyse link register access
 			if (rt == 0)

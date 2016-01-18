@@ -4,7 +4,7 @@
 
 #include "cellSubdisplay.h"
 
-extern Module cellSubdisplay;
+extern Module<> cellSubdisplay;
 
 s32 cellSubDisplayInit()
 {
@@ -20,7 +20,7 @@ s32 cellSubDisplayEnd()
 
 s32 cellSubDisplayGetRequiredMemory(vm::ptr<CellSubDisplayParam> pParam)
 {
-	cellSubdisplay.Warning("cellSubDisplayGetRequiredMemory(pParam=*0x%x)", pParam);
+	cellSubdisplay.warning("cellSubDisplayGetRequiredMemory(pParam=*0x%x)", pParam);
 
 	if (pParam->version == CELL_SUBDISPLAY_VERSION_0002)
 	{
@@ -74,7 +74,7 @@ s32 cellSubDisplayGetPeerList()
 	return CELL_OK;
 }
 
-Module cellSubdisplay("cellSubdisplay", []()
+Module<> cellSubdisplay("cellSubdisplay", []()
 {
 	REG_FUNC(cellSubdisplay, cellSubDisplayInit);
 	REG_FUNC(cellSubdisplay, cellSubDisplayEnd);

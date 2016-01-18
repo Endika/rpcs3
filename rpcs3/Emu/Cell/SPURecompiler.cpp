@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "Utilities/Log.h"
 #include "Emu/IdManager.h"
 #include "Emu/Memory/Memory.h"
 
@@ -24,7 +23,7 @@ u32 SPURecompilerDecoder::DecodeMemory(const u32 address)
 	}
 
 	// get SPU LS pointer
-	const auto _ls = vm::get_ptr<be_t<u32>>(spu.offset);
+	const auto _ls = vm::ps3::_ptr<u32>(spu.offset);
 
 	// always validate (TODO)
 	const auto func = db->analyse(_ls, spu.pc);

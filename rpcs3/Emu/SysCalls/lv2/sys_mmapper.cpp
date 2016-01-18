@@ -19,7 +19,7 @@ lv2_memory_t::lv2_memory_t(u32 size, u32 align, u64 flags, const std::shared_ptr
 
 s32 sys_mmapper_allocate_address(u64 size, u64 flags, u64 alignment, vm::ptr<u32> alloc_addr)
 {
-	sys_mmapper.Error("sys_mmapper_allocate_address(size=0x%llx, flags=0x%llx, alignment=0x%llx, alloc_addr=*0x%x)", size, flags, alignment, alloc_addr);
+	sys_mmapper.error("sys_mmapper_allocate_address(size=0x%llx, flags=0x%llx, alignment=0x%llx, alloc_addr=*0x%x)", size, flags, alignment, alloc_addr);
 
 	LV2_LOCK;
 
@@ -31,6 +31,14 @@ s32 sys_mmapper_allocate_address(u64 size, u64 flags, u64 alignment, vm::ptr<u32
 	if (size > UINT32_MAX)
 	{
 		return CELL_ENOMEM;
+	}
+
+	// This is a 'hack' / workaround for psl1ght, which gives us an alignment of 0, which is technically invalid, 
+	//  but apparently is allowed on actual ps3
+	//  https://github.com/ps3dev/PSL1GHT/blob/534e58950732c54dc6a553910b653c99ba6e9edc/ppu/librt/sbrk.c#L71 
+	if (!alignment)
+	{
+		alignment = 0x10000000;
 	}
 
 	switch (alignment)
@@ -59,7 +67,7 @@ s32 sys_mmapper_allocate_address(u64 size, u64 flags, u64 alignment, vm::ptr<u32
 
 s32 sys_mmapper_allocate_fixed_address()
 {
-	sys_mmapper.Error("sys_mmapper_allocate_fixed_address()");
+	sys_mmapper.error("sys_mmapper_allocate_fixed_address()");
 
 	LV2_LOCK;
 
@@ -74,7 +82,7 @@ s32 sys_mmapper_allocate_fixed_address()
 // Allocate physical memory (create lv2_memory_t object)
 s32 sys_mmapper_allocate_memory(u64 size, u64 flags, vm::ptr<u32> mem_id)
 {
-	sys_mmapper.Warning("sys_mmapper_allocate_memory(size=0x%llx, flags=0x%llx, mem_id=*0x%x)", size, flags, mem_id);
+	sys_mmapper.warning("sys_mmapper_allocate_memory(size=0x%llx, flags=0x%llx, mem_id=*0x%x)", size, flags, mem_id);
 
 	LV2_LOCK;
 
@@ -125,7 +133,7 @@ s32 sys_mmapper_allocate_memory(u64 size, u64 flags, vm::ptr<u32> mem_id)
 
 s32 sys_mmapper_allocate_memory_from_container(u32 size, u32 cid, u64 flags, vm::ptr<u32> mem_id)
 {
-	sys_mmapper.Error("sys_mmapper_allocate_memory_from_container(size=0x%x, cid=0x%x, flags=0x%llx, mem_id=*0x%x)", size, cid, flags, mem_id);
+	sys_mmapper.error("sys_mmapper_allocate_memory_from_container(size=0x%x, cid=0x%x, flags=0x%llx, mem_id=*0x%x)", size, cid, flags, mem_id);
 
 	LV2_LOCK;
 
@@ -186,14 +194,14 @@ s32 sys_mmapper_allocate_memory_from_container(u32 size, u32 cid, u64 flags, vm:
 
 s32 sys_mmapper_change_address_access_right(u32 addr, u64 flags)
 {
-	sys_mmapper.Todo("sys_mmapper_change_address_access_right(addr=0x%x, flags=0x%llx)", addr, flags);
+	sys_mmapper.todo("sys_mmapper_change_address_access_right(addr=0x%x, flags=0x%llx)", addr, flags);
 
 	return CELL_OK;
 }
 
 s32 sys_mmapper_free_address(u32 addr)
 {
-	sys_mmapper.Error("sys_mmapper_free_address(addr=0x%x)", addr);
+	sys_mmapper.error("sys_mmapper_free_address(addr=0x%x)", addr);
 
 	LV2_LOCK;
 
@@ -204,7 +212,7 @@ s32 sys_mmapper_free_address(u32 addr)
 		return CELL_EINVAL;
 	}
 
-	if (area->used.load())
+	if (area->used)
 	{
 		return CELL_EBUSY;
 	}
@@ -219,7 +227,7 @@ s32 sys_mmapper_free_address(u32 addr)
 
 s32 sys_mmapper_free_memory(u32 mem_id)
 {
-	sys_mmapper.Warning("sys_mmapper_free_memory(mem_id=0x%x)", mem_id);
+	sys_mmapper.warning("sys_mmapper_free_memory(mem_id=0x%x)", mem_id);
 
 	LV2_LOCK;
 
@@ -250,7 +258,7 @@ s32 sys_mmapper_free_memory(u32 mem_id)
 
 s32 sys_mmapper_map_memory(u32 addr, u32 mem_id, u64 flags)
 {
-	sys_mmapper.Error("sys_mmapper_map_memory(addr=0x%x, mem_id=0x%x, flags=0x%llx)", addr, mem_id, flags);
+	sys_mmapper.error("sys_mmapper_map_memory(addr=0x%x, mem_id=0x%x, flags=0x%llx)", addr, mem_id, flags);
 
 	LV2_LOCK;
 
@@ -273,9 +281,10 @@ s32 sys_mmapper_map_memory(u32 addr, u32 mem_id, u64 flags)
 		return CELL_EALIGN;
 	}
 
-	if (const u32 old_addr = mem->addr.load())
+	if (const u32 old_addr = mem->addr)
 	{
-		throw EXCEPTION("Already mapped (mem_id=0x%x, addr=0x%x)", mem_id, old_addr);
+		sys_mmapper.warning("sys_mmapper_map_memory: Already mapped (mem_id=0x%x, addr=0x%x)", mem_id, old_addr);
+		return CELL_OK;
 	}
 
 	if (!area->falloc(addr, mem->size))
@@ -290,7 +299,7 @@ s32 sys_mmapper_map_memory(u32 addr, u32 mem_id, u64 flags)
 
 s32 sys_mmapper_search_and_map(u32 start_addr, u32 mem_id, u64 flags, vm::ptr<u32> alloc_addr)
 {
-	sys_mmapper.Error("sys_mmapper_search_and_map(start_addr=0x%x, mem_id=0x%x, flags=0x%llx, alloc_addr=*0x%x)", start_addr, mem_id, flags, alloc_addr);
+	sys_mmapper.error("sys_mmapper_search_and_map(start_addr=0x%x, mem_id=0x%x, flags=0x%llx, alloc_addr=*0x%x)", start_addr, mem_id, flags, alloc_addr);
 
 	LV2_LOCK;
 
@@ -317,12 +326,12 @@ s32 sys_mmapper_search_and_map(u32 start_addr, u32 mem_id, u64 flags, vm::ptr<u3
 
 	*alloc_addr = addr;
 
-	return CELL_ENOMEM;
+	return CELL_OK;
 }
 
 s32 sys_mmapper_unmap_memory(u32 addr, vm::ptr<u32> mem_id)
 {
-	sys_mmapper.Error("sys_mmapper_unmap_memory(addr=0x%x, mem_id=*0x%x)", addr, mem_id);
+	sys_mmapper.error("sys_mmapper_unmap_memory(addr=0x%x, mem_id=*0x%x)", addr, mem_id);
 
 	LV2_LOCK;
 
@@ -355,7 +364,7 @@ s32 sys_mmapper_unmap_memory(u32 addr, vm::ptr<u32> mem_id)
 
 s32 sys_mmapper_enable_page_fault_notification(u32 addr, u32 eq)
 {
-	sys_mmapper.Todo("sys_mmapper_enable_page_fault_notification(addr=0x%x, eq=0x%x)", addr, eq);
+	sys_mmapper.todo("sys_mmapper_enable_page_fault_notification(addr=0x%x, eq=0x%x)", addr, eq);
 
 	return CELL_OK;
 }

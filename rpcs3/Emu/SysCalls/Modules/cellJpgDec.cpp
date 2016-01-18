@@ -15,7 +15,7 @@ extern "C"
 
 #include "cellJpgDec.h"
 
-extern Module cellJpgDec;
+extern Module<> cellJpgDec;
 
 s32 cellJpgDecCreate(u32 mainHandle, u32 threadInParam, u32 threadOutParam)
 {
@@ -37,14 +37,14 @@ s32 cellJpgDecDestroy(u32 mainHandle)
 
 s32 cellJpgDecOpen(u32 mainHandle, vm::ptr<u32> subHandle, vm::ptr<CellJpgDecSrc> src, vm::ptr<CellJpgDecOpnInfo> openInfo)
 {
-	cellJpgDec.Warning("cellJpgDecOpen(mainHandle=0x%x, subHandle=*0x%x, src=*0x%x, openInfo=*0x%x)", mainHandle, subHandle, src, openInfo);
+	cellJpgDec.warning("cellJpgDecOpen(mainHandle=0x%x, subHandle=*0x%x, src=*0x%x, openInfo=*0x%x)", mainHandle, subHandle, src, openInfo);
 
 	CellJpgDecSubHandle current_subHandle;
 
 	current_subHandle.fd = 0;
 	current_subHandle.src = *src;
 
-	switch(src->srcSelect.value())
+	switch (src->srcSelect)
 	{
 	case CELL_JPGDEC_BUFFER:
 		current_subHandle.fileSize = src->streamSize;
@@ -75,7 +75,7 @@ s32 cellJpgDecExtOpen()
 
 s32 cellJpgDecClose(u32 mainHandle, u32 subHandle)
 {
-	cellJpgDec.Warning("cellJpgDecOpen(mainHandle=0x%x, subHandle=0x%x)", mainHandle, subHandle);
+	cellJpgDec.warning("cellJpgDecOpen(mainHandle=0x%x, subHandle=0x%x)", mainHandle, subHandle);
 
 	const auto subHandle_data = idm::get<CellJpgDecSubHandle>(subHandle);
 
@@ -92,7 +92,7 @@ s32 cellJpgDecClose(u32 mainHandle, u32 subHandle)
 
 s32 cellJpgDecReadHeader(u32 mainHandle, u32 subHandle, vm::ptr<CellJpgDecInfo> info)
 {
-	cellJpgDec.Log("cellJpgDecReadHeader(mainHandle=0x%x, subHandle=0x%x, info=*0x%x)", mainHandle, subHandle, info);
+	cellJpgDec.trace("cellJpgDecReadHeader(mainHandle=0x%x, subHandle=0x%x, info=*0x%x)", mainHandle, subHandle, info);
 
 	const auto subHandle_data = idm::get<CellJpgDecSubHandle>(subHandle);
 
@@ -108,10 +108,10 @@ s32 cellJpgDecReadHeader(u32 mainHandle, u32 subHandle, vm::ptr<CellJpgDecInfo> 
 	// Write the header to buffer
 	std::unique_ptr<u8[]> buffer(new u8[fileSize]);
 
-	switch(subHandle_data->src.srcSelect.value())
+	switch (subHandle_data->src.srcSelect)
 	{
 	case CELL_JPGDEC_BUFFER:
-		std::memcpy(buffer.get(), vm::get_ptr(subHandle_data->src.streamPtr), fileSize);
+		std::memcpy(buffer.get(), vm::base(subHandle_data->src.streamPtr), fileSize);
 		break;
 
 	case CELL_JPGDEC_FILE:
@@ -169,7 +169,7 @@ s32 cellJpgDecExtReadHeader()
 
 s32 cellJpgDecDecodeData(u32 mainHandle, u32 subHandle, vm::ptr<u8> data, vm::cptr<CellJpgDecDataCtrlParam> dataCtrlParam, vm::ptr<CellJpgDecDataOutInfo> dataOutInfo)
 {
-	cellJpgDec.Log("cellJpgDecDecodeData(mainHandle=0x%x, subHandle=0x%x, data=*0x%x, dataCtrlParam=*0x%x, dataOutInfo=*0x%x)", mainHandle, subHandle, data, dataCtrlParam, dataOutInfo);
+	cellJpgDec.trace("cellJpgDecDecodeData(mainHandle=0x%x, subHandle=0x%x, data=*0x%x, dataCtrlParam=*0x%x, dataOutInfo=*0x%x)", mainHandle, subHandle, data, dataCtrlParam, dataOutInfo);
 
 	dataOutInfo->status = CELL_JPGDEC_DEC_STATUS_STOP;
 
@@ -187,10 +187,10 @@ s32 cellJpgDecDecodeData(u32 mainHandle, u32 subHandle, vm::ptr<u8> data, vm::cp
 	//Copy the JPG file to a buffer
 	std::unique_ptr<u8[]> jpg(new u8[fileSize]);
 
-	switch(subHandle_data->src.srcSelect.value())
+	switch (subHandle_data->src.srcSelect)
 	{
 	case CELL_JPGDEC_BUFFER:
-		std::memcpy(jpg.get(), vm::get_ptr(subHandle_data->src.streamPtr), fileSize);
+		std::memcpy(jpg.get(), vm::base(subHandle_data->src.streamPtr), fileSize);
 		break;
 
 	case CELL_JPGDEC_FILE:
@@ -288,7 +288,7 @@ s32 cellJpgDecDecodeData(u32 mainHandle, u32 subHandle, vm::ptr<u8> data, vm::cp
 	case CELL_JPG_UPSAMPLE_ONLY:
 	case CELL_JPG_GRAYSCALE_TO_ALPHA_RGBA:
 	case CELL_JPG_GRAYSCALE_TO_ALPHA_ARGB:
-		cellJpgDec.Error("cellJpgDecDecodeData: Unsupported color space (%d)", current_outParam.outputColorSpace);
+		cellJpgDec.error("cellJpgDecDecodeData: Unsupported color space (%d)", current_outParam.outputColorSpace);
 	break;
 
 	default:
@@ -310,7 +310,7 @@ s32 cellJpgDecExtDecodeData()
 
 s32 cellJpgDecSetParameter(u32 mainHandle, u32 subHandle, vm::cptr<CellJpgDecInParam> inParam, vm::ptr<CellJpgDecOutParam> outParam)
 {
-	cellJpgDec.Log("cellJpgDecSetParameter(mainHandle=0x%x, subHandle=0x%x, inParam=*0x%x, outParam=*0x%x)", mainHandle, subHandle, inParam, outParam);
+	cellJpgDec.trace("cellJpgDecSetParameter(mainHandle=0x%x, subHandle=0x%x, inParam=*0x%x, outParam=*0x%x)", mainHandle, subHandle, inParam, outParam);
 
 	const auto subHandle_data = idm::get<CellJpgDecSubHandle>(subHandle);
 
@@ -359,7 +359,7 @@ s32 cellJpgDecExtSetParameter()
 }
 
 
-Module cellJpgDec("cellJpgDec", []()
+Module<> cellJpgDec("cellJpgDec", []()
 {
 	REG_FUNC(cellJpgDec, cellJpgDecCreate);
 	REG_FUNC(cellJpgDec, cellJpgDecExtCreate);

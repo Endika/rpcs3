@@ -5,18 +5,18 @@
 
 #include "cellMic.h"
 
-extern Module cellMic;
+extern Module<> cellMic;
 
 s32 cellMicInit()
 {
-	cellMic.Warning("cellMicInit()");
+	cellMic.warning("cellMicInit()");
 
 	return CELL_OK;
 }
 
 s32 cellMicEnd()
 {
-	cellMic.Warning("cellMicEnd()");
+	cellMic.warning("cellMicEnd()");
 
 	return CELL_OK;
 }
@@ -260,7 +260,7 @@ s32 cellMicGetDeviceIdentifier()
 	return CELL_OK;
 }
 
-Module cellMic("cellMic", []()
+Module<> cellMic("cellMic", []()
 {
 	REG_FUNC(cellMic, cellMicInit);
 	REG_FUNC(cellMic, cellMicEnd);

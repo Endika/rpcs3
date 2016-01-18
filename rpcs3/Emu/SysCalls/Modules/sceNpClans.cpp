@@ -6,11 +6,11 @@
 #include "sceNp.h"
 #include "sceNpClans.h"
 
-extern Module sceNpClans;
+extern Module<> sceNpClans;
 
 s32 sceNpClansInit(vm::ptr<SceNpCommunicationId> commId, vm::ptr<SceNpCommunicationPassphrase> passphrase, vm::ptr<void> pool, vm::ptr<u32> poolSize, u32 flags)
 {
-	sceNpClans.Warning("sceNpClansInit(commId=*0x%x, passphrase=*0x%x, pool=*0x%x, poolSize=*0x%x, flags=0x%x)", commId, passphrase, pool, poolSize, flags);
+	sceNpClans.warning("sceNpClansInit(commId=*0x%x, passphrase=*0x%x, pool=*0x%x, poolSize=*0x%x, flags=0x%x)", commId, passphrase, pool, poolSize, flags);
 
 	if (flags != 0)
 	{
@@ -22,14 +22,14 @@ s32 sceNpClansInit(vm::ptr<SceNpCommunicationId> commId, vm::ptr<SceNpCommunicat
 
 s32 sceNpClansTerm()
 {
-	sceNpClans.Warning("sceNpClansTerm()");
+	sceNpClans.warning("sceNpClansTerm()");
 
 	return CELL_OK;
 }
 
 s32 sceNpClansCreateRequest(vm::ptr<SceNpClansRequestHandle> handle, u64 flags)
 {
-	sceNpClans.Todo("sceNpClansCreateRequest(handle=*0x%x, flags=0x%llx)", handle, flags);
+	sceNpClans.todo("sceNpClansCreateRequest(handle=*0x%x, flags=0x%llx)", handle, flags);
 
 	if (flags != 0)
 	{
@@ -255,7 +255,7 @@ s32 sceNpClansRemoveChallenge()
 	return CELL_OK;
 }
 
-Module sceNpClans("sceNpClans", []()
+Module<> sceNpClans("sceNpClans", []()
 {
 	REG_FUNC(sceNpClans, sceNpClansInit);
 	REG_FUNC(sceNpClans, sceNpClansTerm);

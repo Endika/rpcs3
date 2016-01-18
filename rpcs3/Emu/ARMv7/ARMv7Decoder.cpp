@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "Utilities/Log.h"
 #include "Emu/Memory/Memory.h"
 #include "ARMv7Thread.h"
 #include "ARMv7Interpreter.h"
@@ -1126,7 +1125,7 @@ struct ARMv7_op2_table_t
 			{
 				if (opcode.code & ~opcode.mask)
 				{
-					LOG_ERROR(GENERAL, "%s: wrong opcode mask (mask=0x%04x, code=0x%04x)", opcode.name, opcode.mask >> 16, opcode.code >> 16);
+					LOG_ERROR(ARMv7, "%s: wrong opcode mask (mask=0x%04x, code=0x%04x)", opcode.name, opcode.mask >> 16, opcode.code >> 16);
 				}
 
 				t2.push_back(&opcode);
@@ -1165,7 +1164,7 @@ struct ARMv7_op4t_table_t
 			{
 				if (opcode.code & ~opcode.mask)
 				{
-					LOG_ERROR(GENERAL, "%s: wrong opcode mask (mask=0x%04x 0x%04x, code=0x%04x 0x%04x)", opcode.name, opcode.mask >> 16, (u16)opcode.mask, opcode.code >> 16, (u16)opcode.code);
+					LOG_ERROR(ARMv7, "%s: wrong opcode mask (mask=0x%04x 0x%04x, code=0x%04x 0x%04x)", opcode.name, opcode.mask >> 16, (u16)opcode.mask, opcode.code >> 16, (u16)opcode.code);
 				}
 
 				table.push_back(&opcode);
@@ -1200,7 +1199,7 @@ struct ARMv7_op4arm_table_t
 			{
 				if (opcode.code & ~opcode.mask)
 				{
-					LOG_ERROR(GENERAL, "%s: wrong opcode mask (mask=0x%08x, code=0x%08x)", opcode.name, opcode.mask, opcode.code);
+					LOG_ERROR(ARMv7, "%s: wrong opcode mask (mask=0x%08x, code=0x%08x)", opcode.name, opcode.mask, opcode.code);
 				}
 
 				table.push_back(&opcode);
@@ -1366,7 +1365,7 @@ u32 ARMv7Decoder::DecodeMemory(const u32 address)
 	// "group" decoding algorithm (temporarily disabled)
 
 	//execute_main_group(&m_thr);
-	//// LOG_NOTICE(GENERAL, "%s, %d \n\n", m_thr.m_last_instr_name, m_thr.m_last_instr_size);
+	//// LOG_NOTICE(ARMv7, "%s, %d \n\n", m_thr.m_last_instr_name, m_thr.m_last_instr_size);
 	//m_thr.m_last_instr_name = "Unknown";
 	//return m_thr.m_last_instr_size;
 }

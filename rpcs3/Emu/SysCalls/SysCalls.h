@@ -1,29 +1,14 @@
 #pragma once
+
 #include "ErrorCodes.h"
-#include "LogBase.h"
 
-class SysCallBase : public LogBase
+struct SysCallBase : public _log::channel
 {
-private:
-	std::string m_module_name;
-
-public:
 	SysCallBase(const std::string& name)
-		: m_module_name(name)
+		: _log::channel(name, _log::level::notice)
 	{
-	}
-
-	virtual const std::string& GetName() const override
-	{
-		return m_module_name;
 	}
 };
 
-class PPUThread;
-
-class SysCalls
-{
-public:
-	static void DoSyscall(PPUThread& CPU, u64 code);
-	static std::string GetFuncName(const u64 fid);
-};
+void execute_syscall_by_index(class PPUThread& ppu, u64 code);
+std::string get_ps3_function_name(u64 fid);

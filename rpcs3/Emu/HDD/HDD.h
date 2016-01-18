@@ -156,7 +156,7 @@ public:
 
 	bool SearchEntry(const std::string& name, u64& entry_block, u64* parent_block = nullptr);
 
-	int OpenDir(const std::string& name);
+	s32 OpenDir(const std::string& name);
 
 	bool Rename(const std::string& from, const std::string& to);
 
@@ -196,7 +196,7 @@ public:
 
 	virtual u64 Read(void* dst, u64 count) override;
 
-	virtual u64 Seek(s64 offset, fsm seek_mode = fsm::begin) override;
+	virtual u64 Seek(s64 offset, fs::seek_mode whence = fs::seek_set) override;
 
 	virtual u64 Tell() const override;
 

@@ -5,18 +5,18 @@
 #include "sceNp.h"
 #include "sceNpTus.h"
 
-extern Module sceNpTus;
+extern Module<> sceNpTus;
 
 s32 sceNpTusInit()
 {
-	sceNpTus.Warning("sceNpTusInit()");
+	sceNpTus.warning("sceNpTusInit()");
 
 	return CELL_OK;
 }
 
 s32 sceNpTusTerm()
 {
-	sceNpTus.Warning("sceNpTusTerm()");
+	sceNpTus.warning("sceNpTusTerm()");
 
 	return CELL_OK;
 }
@@ -333,7 +333,7 @@ s32 sceNpTusDeleteMultiSlotDataVUserAsync()
 	return CELL_OK;
 }
 
-Module sceNpTus("sceNpTus", []()
+Module<> sceNpTus("sceNpTus", []()
 {
 	REG_FUNC(sceNpTus, sceNpTusInit);
 	REG_FUNC(sceNpTus, sceNpTusTerm);

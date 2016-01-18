@@ -1,7 +1,6 @@
 #include "stdafx.h"
 
 #include "Emu/System.h"
-#include "Utilities/Log.h"
 #include "CgBinaryProgram.h"
 #include "Emu/RSX/RSXVertexProgram.h"
 
@@ -61,7 +60,7 @@ std::string CgBinaryDisasm::GetDSTDisasm(bool isSca)
 
 	default:
 		if (d3.dst > 15)
-			LOG_ERROR(RSX, fmt::format("dst index out of range: %u", d3.dst));
+			LOG_ERROR(RSX, "dst index out of range: %u", d3.dst);
 
 		ret += fmt::format("o[%d]", d3.dst) + GetVecMaskDisasm();
 		break;
@@ -95,7 +94,7 @@ std::string CgBinaryDisasm::GetSRCDisasm(const u32 n)
 		break;
 
 	default:
-		LOG_ERROR(RSX, fmt::format("Bad src%u reg type: %d", n, u32{ src[n].reg_type }));
+		LOG_ERROR(RSX, "Bad src%u reg type: %d", n, u32{ src[n].reg_type });
 		Emu.Pause();
 		break;
 	}
@@ -116,7 +115,7 @@ std::string CgBinaryDisasm::GetSRCDisasm(const u32 n)
 
 	if (swizzle != f) ret += '.' + swizzle;
 
-	bool abs;
+	bool abs = false;
 
 	switch (n)
 	{

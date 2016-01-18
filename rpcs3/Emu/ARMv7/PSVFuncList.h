@@ -2,16 +2,14 @@
 
 #include "Emu/Memory/Memory.h"
 #include "ARMv7Thread.h"
-#include "Emu/SysCalls/LogBase.h"
 
 namespace vm { using namespace psv; }
 
 // PSV module class
-class psv_log_base : public LogBase
+class psv_log_base : public _log::channel
 {
 	using init_func_t = void(*)();
 
-	std::string m_name;
 	init_func_t m_init;
 
 public:
@@ -32,12 +30,6 @@ public:
 
 		m_init();
 	}
-
-	virtual const std::string& GetName() const override
-	{
-		return m_name;
-	}
-
 };
 
 using armv7_func_caller = void(*)(ARMv7Thread&);
@@ -321,7 +313,7 @@ namespace psv_func_detail
 		static const bool is_variadic = std::is_same<std::remove_cv_t<T>, armv7_va_args_t>::value;
 		static const bool is_general = !is_float && !is_vector && !is_context && !is_variadic;
 
-		static const u32 g_align = alignof32(T) > 4 ? alignof32(T) >> 2 : 1;
+		static const u32 g_align = ALIGN_32(T) > 4 ? ALIGN_32(T) >> 2 : 1;
 		static const u32 g_value = is_general ? ((g_count + (g_align - 1)) & ~(g_align - 1)) + (g_align) : g_count;
 		static const u32 f_value = f_count + is_float;
 		static const u32 v_value = v_count + is_vector;

@@ -1,6 +1,7 @@
+#include "stdafx.h"
 #include "stdafx_gui.h"
-#include "Ini.h"
 #include "rpcs3.h"
+#include "config.h"
 #include "MainFrame.h"
 #include "git-version.h"
 
@@ -22,8 +23,11 @@
 #include "Gui/MemoryStringSearcher.h"
 #include "Gui/LLEModulesManager.h"
 #include "Gui/CgDisasm.h"
-#include "Loader/PKG.h"
-#include <wx/dynlib.h>
+#include "Crypto/unpkg.h"
+
+#ifndef _WIN32
+#include "frame_icon.xpm"
+#endif
 
 BEGIN_EVENT_TABLE(MainFrame, FrameBase)
 	EVT_CLOSE(MainFrame::OnQuit)
@@ -68,7 +72,7 @@ MainFrame::MainFrame()
 	, m_sys_menu_opened(false)
 {
 
-	SetLabel(wxString::Format(_PRGNAME_ " " RPCS3_GIT_VERSION));
+	SetLabel(wxString::Format(_PRGNAME_ " v" _PRGVER_ "-" RPCS3_GIT_VERSION));
 
 	wxMenuBar* menubar = new wxMenuBar();
 
@@ -116,9 +120,7 @@ MainFrame::MainFrame()
 	menu_help->Append(id_help_about, "&About...");
 
 	SetMenuBar(menubar);
-#ifdef _WIN32
 	SetIcon(wxICON(frame_icon));
-#endif
 
 	// Panels
 	m_log_frame = new LogFrame(this);
@@ -161,6 +163,9 @@ MainFrame::MainFrame()
 
 	wxGetApp().Bind(wxEVT_KEY_DOWN, &MainFrame::OnKeyDown, this);
 	wxGetApp().Bind(wxEVT_DBG_COMMAND, &MainFrame::UpdateUI, this);
+
+	LOG_NOTICE(GENERAL, _PRGNAME_ " v" _PRGVER_ "-" RPCS3_GIT_VERSION);
+	LOG_NOTICE(GENERAL, "");
 }
 
 MainFrame::~MainFrame()
@@ -176,16 +181,18 @@ void MainFrame::AddPane(wxWindow* wind, const wxString& caption, int flags)
 
 void MainFrame::DoSettings(bool load)
 {
-	IniEntry<std::string> ini;
-	ini.Init("Settings", "MainFrameAui");
-
 	if(load)
 	{
-		m_aui_mgr.LoadPerspective(fmt::FromUTF8(ini.LoadValue(fmt::ToUTF8(m_aui_mgr.SavePerspective()))));
+		// replace all '=' with '~' for ini-manager
+		if(!rpcs3::config.gui.aui_mgr_perspective.value().size())
+			rpcs3::config.gui.aui_mgr_perspective = fmt::replace_all(fmt::ToUTF8(m_aui_mgr.SavePerspective()), "=", "~");
+
+		m_aui_mgr.LoadPerspective(fmt::FromUTF8(fmt::replace_all(rpcs3::config.gui.aui_mgr_perspective.value(), "~", "=")));
 	}
 	else
 	{
-		ini.SaveValue(fmt::ToUTF8(m_aui_mgr.SavePerspective()));
+		rpcs3::config.gui.aui_mgr_perspective = fmt::replace_all(fmt::ToUTF8(m_aui_mgr.SavePerspective()), "=", "~");
+		rpcs3::config.save();
 	}
 }
 
@@ -211,48 +218,93 @@ void MainFrame::BootGame(wxCommandEvent& WXUNUSED(event))
 	
 	if(Emu.BootGame(ctrl.GetPath().ToStdString()))
 	{
-		LOG_SUCCESS(HLE, "Game: boot done.");
+		LOG_SUCCESS(GENERAL, "Game: boot done.");
 
-		if (Ini.HLEAlwaysStart.GetValue() && Emu.IsReady())
+		if (rpcs3::config.misc.always_start.value())
 		{
 			Emu.Run();
 		}
 	}
 	else
 	{
-		LOG_ERROR(HLE, "PS3 executable not found in selected folder (%s)", fmt::ToUTF8(ctrl.GetPath())); // passing std::string (test)
+		LOG_ERROR(GENERAL, "PS3 executable not found in selected folder (%s)", fmt::ToUTF8(ctrl.GetPath())); // passing std::string (test)
 	}
 }
 
 void MainFrame::InstallPkg(wxCommandEvent& WXUNUSED(event))
 {
-	bool stopped = false;
-
-	if(Emu.IsRunning())
-	{
-		Emu.Pause();
-		stopped = true;
-	}
+	const bool was_running = Emu.Pause();
 
 	wxFileDialog ctrl(this, L"Select PKG", wxEmptyString, wxEmptyString, "PKG files (*.pkg)|*.pkg|All files (*.*)|*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 	
-	if(ctrl.ShowModal() == wxID_CANCEL)
+	if (ctrl.ShowModal() == wxID_CANCEL)
 	{
-		if(stopped) Emu.Resume();
+		if (was_running) Emu.Resume();
 		return;
 	}
 
 	Emu.Stop();
-	
-	// Open and install PKG file
-	fs::file pkg_f(ctrl.GetPath().ToStdString(), fom::read);
 
-	if (pkg_f)
+	Emu.GetVFS().Init("/");
+	std::string local_path;
+	Emu.GetVFS().GetDevice("/dev_hdd0/game/", local_path);
+
+	// Open PKG file
+	fs::file pkg_f(ctrl.GetPath().ToStdString());
+
+	// Open file mapping (test)
+	fs::file_read_map pkg_ptr(pkg_f);
+
+	if (!pkg_f || !pkg_ptr)
 	{
-		Emu.GetVFS().Init("/");
-		std::string local_path;
-		Emu.GetVFS().GetDevice("/dev_hdd0/game/", local_path);
-		PKGLoader::Install(pkg_f, local_path + "/");
+		LOG_ERROR(LOADER, "PKG: Failed to open %s", ctrl.GetPath().ToStdString());
+		return;
+	}
+
+	// Append title ID to the path
+	local_path += '/';
+	local_path.append(pkg_ptr + 55, 9);
+
+	if (!fs::create_dir(local_path))
+	{
+		if (fs::is_dir(local_path))
+		{
+			if (wxMessageDialog(this, "Another installation found. Do you want to overwrite it?", "PKG Decrypter / Installer", wxYES_NO | wxCENTRE).ShowModal() != wxID_YES)
+			{
+				LOG_ERROR(LOADER, "PKG: Cancelled installation to existing directory %s", local_path);
+				return;
+			}
+		}
+		else
+		{
+			LOG_ERROR(LOADER, "PKG: Could not create the installation directory %s", local_path);
+			return;
+		}
+	}
+
+	wxProgressDialog pdlg("PKG Decrypter / Installer", "Please wait, unpacking...", 1000, this, wxPD_AUTO_HIDE | wxPD_APP_MODAL);
+
+	volatile f64 progress = 0.0;
+
+	// Run PKG unpacking asynchronously
+	auto result = std::async(std::launch::async, WRAP_EXPR(pkg_install(pkg_f, local_path + '/', progress)));
+
+	// Wait for the completion
+	while (result.wait_for(15ms) != std::future_status::ready)
+	{
+		// Update progress window
+		pdlg.Update(progress * pdlg.GetRange());
+
+		// Update main frame
+		Update();
+		wxGetApp().ProcessPendingEvents();
+	}
+
+	pdlg.Close();
+
+	if (result.get())
+	{
+		LOG_SUCCESS(LOADER, "PKG: Package successfully installed in %s", local_path);
 
 		// Refresh game list
 		m_game_viewer->Refresh();
@@ -284,15 +336,15 @@ void MainFrame::BootElf(wxCommandEvent& WXUNUSED(event))
 		return;
 	}
 
-	LOG_NOTICE(HLE, "(S)ELF: booting...");
+	LOG_NOTICE(LOADER, "(S)ELF: booting...");
 
 	Emu.Stop();
 	Emu.SetPath(fmt::ToUTF8(ctrl.GetPath()));
 	Emu.Load();
 
-	LOG_SUCCESS(HLE, "(S)ELF: boot done.");
+	LOG_SUCCESS(LOADER, "(S)ELF: boot done.");
 	
-	if (Ini.HLEAlwaysStart.GetValue() && Emu.IsReady())
+	if (rpcs3::config.misc.always_start.value() && Emu.IsReady())
 	{
 		Emu.Run();
 	}
@@ -369,27 +421,27 @@ void MainFrame::ConfigLLEModules(wxCommandEvent& event)
 
 void MainFrame::OpenELFCompiler(wxCommandEvent& WXUNUSED(event))
 {
-	(new CompilerELF(this)) -> Show();
+	(new CompilerELF(this))->Show();
 }
 
 void MainFrame::OpenKernelExplorer(wxCommandEvent& WXUNUSED(event))
 {
-	(new KernelExplorer(this)) -> Show();
+	(new KernelExplorer(this))->Show();
 }
 
 void MainFrame::OpenMemoryViewer(wxCommandEvent& WXUNUSED(event))
 {
-	(new MemoryViewerPanel(this)) -> Show();
+	(new MemoryViewerPanel(this))->Show();
 }
 
 void MainFrame::OpenRSXDebugger(wxCommandEvent& WXUNUSED(event))
 {
-	(new RSXDebugger(this)) -> Show();
+	(new RSXDebugger(this))->Show();
 }
 
 void MainFrame::OpenStringSearch(wxCommandEvent& WXUNUSED(event))
 {
-	(new MemoryStringSearcher(this)) -> Show();
+	(new MemoryStringSearcher(this))->Show();
 }
 
 void MainFrame::OpenCgDisasm(wxCommandEvent& WXUNUSED(event))
@@ -459,7 +511,7 @@ void MainFrame::UpdateUI(wxCommandEvent& event)
 
 		if (event.GetId() == DID_STOPPED_EMU)
 		{
-			if (Ini.HLEExitOnStop.GetValue())
+			if (rpcs3::config.misc.exit_on_stop.value())
 			{
 				wxGetApp().Exit();
 			}
@@ -516,7 +568,7 @@ void MainFrame::OnKeyDown(wxKeyEvent& event)
 		case 'E': case 'e': if(Emu.IsPaused()) Emu.Resume(); else if(Emu.IsReady()) Emu.Run(); return;
 		case 'P': case 'p': if(Emu.IsRunning()) Emu.Pause(); return;
 		case 'S': case 's': if(!Emu.IsStopped()) Emu.Stop(); return;
-		case 'R': case 'r': if(!Emu.m_path.empty()) {Emu.Stop(); Emu.Run();} return;
+		case 'R': case 'r': if(!Emu.GetPath().empty()) {Emu.Stop(); Emu.Run();} return;
 		}
 	}
 

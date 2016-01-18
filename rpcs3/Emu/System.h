@@ -1,6 +1,24 @@
 #pragma once
 
 #include "Loader/Loader.h"
+#include "DbgCommand.h"
+
+enum class frame_type;
+
+struct EmuCallbacks
+{
+	std::function<void(std::function<void()>)> call_after;
+	std::function<void()> process_events;
+	std::function<void(DbgCommand, class CPUThread*)> send_dbg_command;
+	std::function<std::unique_ptr<class KeyboardHandlerBase>()> get_kb_handler;
+	std::function<std::unique_ptr<class MouseHandlerBase>()> get_mouse_handler;
+	std::function<std::unique_ptr<class PadHandlerBase>()> get_pad_handler;
+	std::function<std::unique_ptr<class GSFrameBase>(frame_type)> get_gs_frame;
+	std::function<std::shared_ptr<class GSRender>()> get_gs_render;
+	std::function<std::shared_ptr<class AudioThread>()> get_audio;
+	std::function<std::shared_ptr<class MsgDialogBase>()> get_msg_dialog;
+	std::function<std::unique_ptr<class SaveDialogBase>()> get_save_dialog;
+};
 
 enum Status : u32
 {
@@ -44,8 +62,10 @@ public:
 	}
 };
 
-class Emulator
+class Emulator final
 {
+	EmuCallbacks m_cb;
+
 	enum Mode
 	{
 		DisAsm,
@@ -81,29 +101,73 @@ class Emulator
 	EmuInfo m_info;
 	loader::loader m_loader;
 
-public:
 	std::string m_path;
 	std::string m_elf_path;
-	std::string m_emu_path;
 	std::string m_title_id;
 	std::string m_title;
 
+public:
 	Emulator();
-	~Emulator();
+
+	void SetCallbacks(EmuCallbacks&& cb)
+	{
+		m_cb = std::move(cb);
+	}
+
+	const auto& GetCallbacks() const
+	{
+		return m_cb;
+	}
+
+	void SendDbgCommand(DbgCommand cmd, class CPUThread* thread = nullptr)
+	{
+		if (m_cb.send_dbg_command) m_cb.send_dbg_command(cmd, thread);
+	}
+
+	// Returns a future object associated with the result of the function called from the GUI thread
+	template<typename F>
+	std::future<void> CallAfter(F&& func) const
+	{
+		// Make "shared" promise to workaround std::function limitation
+		auto spr = std::make_shared<std::promise<void>>();
+
+		// Get future
+		std::future<void> future = spr->get_future();
+
+		// Run asynchronously in GUI thread
+		m_cb.call_after([spr = std::move(spr), task = std::forward<F>(func)]()
+		{
+			try
+			{
+				task();
+				spr->set_value();
+			}
+			catch (...)
+			{
+				spr->set_exception(std::current_exception());
+			}
+		});
+
+		return future;
+	}
+
+	/** Set emulator mode to running unconditionnaly.
+	 * Required to execute various part (PPUInterpreter, memory manager...) outside of rpcs3.
+	 */
+	void SetTestMode()
+	{
+		m_status = Running;
+	}
 
 	void Init();
 	void SetPath(const std::string& path, const std::string& elf_path = "");
 	void SetTitleID(const std::string& id);
 	void SetTitle(const std::string& title);
+	void CreateConfig(const std::string& name);
 
-	std::string GetPath() const
+	const std::string& GetPath() const
 	{
 		return m_elf_path;
-	}
-
-	std::string GetEmulatorPath() const
-	{
-		return m_emu_path;
 	}
 
 	const std::string& GetTitleID() const
@@ -114,11 +178,6 @@ public:
 	const std::string& GetTitle() const
 	{
 		return m_title;
-	}
-
-	void SetEmulatorPath(const std::string& path)
-	{
-		m_emu_path = path;
 	}
 
 	u64 GetPauseTime()
@@ -186,7 +245,7 @@ public:
 
 	void Load();
 	void Run();
-	void Pause();
+	bool Pause();
 	void Resume();
 	void Stop();
 
@@ -212,9 +271,3 @@ inline bool check_lv2_lock(lv2_lock_t& lv2_lock)
 #define LV2_DEFER_LOCK lv2_lock_t lv2_lock
 #define CHECK_LV2_LOCK(x) if (!check_lv2_lock(x)) throw EXCEPTION("lv2_lock is invalid or not locked")
 #define CHECK_EMU_STATUS if (Emu.IsStopped()) throw EmulationStopped{}
-
-typedef void(*CallAfterCbType)(std::function<void()> func);
-
-void CallAfter(std::function<void()> func);
-
-void SetCallAfterCallback(CallAfterCbType cb);

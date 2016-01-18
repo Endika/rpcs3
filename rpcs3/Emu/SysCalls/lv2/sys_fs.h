@@ -184,7 +184,7 @@ struct lv2_file_t
 	u64 st_trans_rate;
 	bool st_copyless;
 
-	named_thread_t st_thread;
+	std::shared_ptr<thread_ctrl> st_thread;
 
 	u32 st_buffer;
 	u64 st_read_size;
@@ -197,8 +197,8 @@ struct lv2_file_t
 		: file(std::move(file))
 		, mode(mode)
 		, flags(flags)
-		, st_status({ SSS_NOT_INITIALIZED })
-		, st_callback({})
+		, st_status(SSS_NOT_INITIALIZED)
+		, st_callback(fs_st_cb_rec_t{})
 	{
 	}
 };
